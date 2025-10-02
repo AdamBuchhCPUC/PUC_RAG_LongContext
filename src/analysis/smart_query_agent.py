@@ -728,43 +728,88 @@ This should be a comprehensive, executive-level summary that captures all the ke
         self.cost_tracker['call_count'] += 1
     
     def _get_dynamic_max_tokens(self, model: str, content: str) -> int:
-        """Calculate dynamic max tokens based on model and content length"""
-        # Model context limits
-        model_limits = {
-            'gpt-3.5-turbo': 4096,
-            'gpt-3.5-turbo-16k': 16384,
-            'gpt-4': 8192,
-            'gpt-4-32k': 32768,
-            'gpt-4-turbo': 128000,
-            'gpt-4o': 128000,
-            'gpt-4o-mini': 128000
-        }
-        
-        # Get model limit
-        max_context = model_limits.get(model, 4096)
+        """Calculate dynamic max tokens based on model context window and content length"""
+        # Get model context limits
+        context_limits = self._get_model_context_limits(model)
+        max_context_tokens = context_limits['max_context_tokens']
+        reserved_tokens = context_limits['reserved_tokens']
         
         # Calculate content length in tokens (rough estimate: 4 chars per token)
         content_tokens = len(content) // 4
         
-        # Reserve tokens for prompt, system message, and response
-        prompt_tokens = 1000  # Estimated prompt overhead
-        response_tokens = min(4000, max_context // 4)  # Reserve 25% for response
+        # Calculate available tokens for response
+        available_tokens = max_context_tokens - content_tokens - reserved_tokens
         
-        # Calculate available tokens for content
-        available_tokens = max_context - prompt_tokens - response_tokens
+        # Ensure we have reasonable response length
+        max_tokens = min(available_tokens, max_context_tokens // 4)
+        max_tokens = max(max_tokens, 500)  # Minimum response length
         
         # If content is too long, truncate it
-        if content_tokens > available_tokens:
-            # Truncate content to fit
-            max_content_length = available_tokens * 4  # Convert back to characters
+        if content_tokens > max_context_tokens * 0.75:  # Use 75% of context for content
+            max_content_tokens = int(max_context_tokens * 0.75)
+            max_content_length = max_content_tokens * 4  # Convert back to characters
             content = content[:max_content_length]
             st.warning(f"⚠️ Content truncated to fit model context window ({model})")
         
         # Return max tokens for response
-        return min(4000, max_context // 4)
+        return min(4000, max_tokens)
+    
+    def _get_dynamic_num_results(self, model: str, question: str, total_docs: int) -> int:
+        """Calculate dynamic number of results based on model context window and available tokens"""
+        # Get model context window limits
+        context_limits = self._get_model_context_limits(model)
+        max_context_tokens = context_limits['max_context_tokens']
+        reserved_tokens = context_limits['reserved_tokens']
+        available_tokens = max_context_tokens - reserved_tokens
+        
+        # Estimate tokens per document (rough approximation)
+        # Average document chunk is ~500-1000 tokens, we'll use 750 as baseline
+        estimated_tokens_per_doc = 750
+        
+        # Calculate how many documents we can fit
+        max_docs_by_context = available_tokens // estimated_tokens_per_doc
+        
+        # Adjust based on question complexity
+        question_lower = question.lower()
+        complexity_indicators = [
+            'compare', 'comparison', 'difference', 'versus', 'vs', 'contrast',
+            'analyze', 'analysis', 'evaluate', 'assessment', 'review',
+            'comprehensive', 'detailed', 'thorough', 'complete'
+        ]
+        
+        complexity_score = sum(1 for indicator in complexity_indicators if indicator in question_lower)
+        
+        # Adjust for complexity
+        if complexity_score >= 3:
+            max_docs_by_context = int(max_docs_by_context * 1.5)
+        elif complexity_score >= 1:
+            max_docs_by_context = int(max_docs_by_context * 1.2)
+        
+        # Don't exceed available documents or reasonable limits
+        return min(max_docs_by_context, total_docs, 20)  # Cap at 20 for performance
+    
+    def _get_model_context_limits(self, model: str) -> Dict[str, int]:
+        """Get context window limits for different models"""
+        # Model context window limits (in tokens)
+        context_limits = {
+            'gpt-3.5-turbo': {'max_context_tokens': 4096, 'reserved_tokens': 1000},
+            'gpt-3.5-turbo-16k': {'max_context_tokens': 16384, 'reserved_tokens': 2000},
+            'gpt-4': {'max_context_tokens': 8192, 'reserved_tokens': 1500},
+            'gpt-4-32k': {'max_context_tokens': 32768, 'reserved_tokens': 3000},
+            'gpt-4-turbo': {'max_context_tokens': 128000, 'reserved_tokens': 4000},
+            'gpt-4o': {'max_context_tokens': 128000, 'reserved_tokens': 4000},
+            'gpt-4o-mini': {'max_context_tokens': 128000, 'reserved_tokens': 3000},
+            'o1': {'max_context_tokens': 200000, 'reserved_tokens': 5000},
+            'o1-mini': {'max_context_tokens': 200000, 'reserved_tokens': 4000},
+            'o1-pro': {'max_context_tokens': 200000, 'reserved_tokens': 5000},
+            'o3': {'max_context_tokens': 200000, 'reserved_tokens': 5000},
+            'o3-mini': {'max_context_tokens': 200000, 'reserved_tokens': 4000}
+        }
+        
+        return context_limits.get(model, {'max_context_tokens': 8000, 'reserved_tokens': 2000})
     
     def _process_factual_query(self, question: str, proceeding: str, model: str, classification: Dict) -> Dict[str, Any]:
-        """Process factual queries using vector/BM25 search"""
+        """Process factual queries using vector/BM25 search with dynamic context management"""
         st.info("🔍 **Processing Factual Query with Vector/BM25 Search**")
         
         # Filter documents by proceeding
@@ -786,17 +831,47 @@ This should be a comprehensive, executive-level summary that captures all the ke
             st.write(f"**Documents in Proceeding**: {len(proceeding_docs)}")
             st.write(f"**Model Used**: {model}")
         
-        # TODO: Implement actual vector/BM25 search here
-        # For now, return a placeholder
-        return {
-            'answer': "Factual query processing with vector/BM25 search not yet implemented. This would search for specific facts, dates, numbers, or precise information from the proceeding documents.",
-            'sources': [],
-            'processing_stages': [{'stage': 'factual_search', 'description': 'Vector/BM25 search for factual information'}],
-            'cost_breakdown': self.cost_tracker
-        }
+        # Use the existing QA system for factual queries with dynamic context
+        from analysis.qa_system import ask_question
+        
+        # Calculate dynamic number of results based on model and question complexity
+        num_results = self._get_dynamic_num_results(model, question, len(proceeding_docs))
+        
+        try:
+            # Use hybrid search for factual queries
+            answer, sources = ask_question(
+                question=question,
+                vector_store=None,  # Will be passed from session state
+                bm25=None,  # Will be passed from session state
+                documents=proceeding_docs,
+                metadata=self.metadata,
+                model=model,
+                search_type="Hybrid (Recommended)",
+                num_results=num_results
+            )
+            
+            # Track costs (simplified for now)
+            estimated_cost = 0.01
+            self._track_cost('factual_search', estimated_cost)
+            
+            return {
+                'answer': answer,
+                'sources': sources,
+                'processing_stages': [{'stage': 'factual_search', 'description': f'Vector/BM25 search with {num_results} results', 'cost': estimated_cost}],
+                'cost_breakdown': self.cost_tracker
+            }
+            
+        except Exception as e:
+            st.error(f"❌ Error in factual query processing: {e}")
+            return {
+                'answer': f"Error processing factual query: {e}",
+                'sources': [],
+                'processing_stages': [{'stage': 'factual_search', 'description': 'Error in search processing'}],
+                'cost_breakdown': self.cost_tracker
+            }
     
     def _process_comparative_query(self, question: str, proceeding: str, model: str, classification: Dict) -> Dict[str, Any]:
-        """Process comparative queries using vector/BM25 search"""
+        """Process comparative queries using vector/BM25 search with dynamic context management"""
         st.info("🔍 **Processing Comparative Query with Vector/BM25 Search**")
         
         # Filter documents by proceeding
@@ -818,14 +893,45 @@ This should be a comprehensive, executive-level summary that captures all the ke
             st.write(f"**Documents in Proceeding**: {len(proceeding_docs)}")
             st.write(f"**Model Used**: {model}")
         
-        # TODO: Implement actual vector/BM25 search here
-        # For now, return a placeholder
-        return {
-            'answer': "Comparative query processing with vector/BM25 search not yet implemented. This would search for documents to compare party positions, responses, or analyze differences between submissions.",
-            'sources': [],
-            'processing_stages': [{'stage': 'comparative_search', 'description': 'Vector/BM25 search for comparative analysis'}],
-            'cost_breakdown': self.cost_tracker
-        }
+        # Use the existing QA system for comparative queries with dynamic context
+        from analysis.qa_system import ask_question
+        
+        # Calculate dynamic number of results (comparative queries need more results)
+        num_results = self._get_dynamic_num_results(model, question, len(proceeding_docs))
+        num_results = min(num_results * 2, 20)  # Double for comparative analysis
+        
+        try:
+            # Use hybrid search for comparative queries
+            answer, sources = ask_question(
+                question=question,
+                vector_store=None,  # Will be passed from session state
+                bm25=None,  # Will be passed from session state
+                documents=proceeding_docs,
+                metadata=self.metadata,
+                model=model,
+                search_type="Hybrid (Recommended)",
+                num_results=num_results
+            )
+            
+            # Track costs (simplified for now)
+            estimated_cost = 0.015  # Slightly higher for comparative analysis
+            self._track_cost('comparative_search', estimated_cost)
+            
+            return {
+                'answer': answer,
+                'sources': sources,
+                'processing_stages': [{'stage': 'comparative_search', 'description': f'Vector/BM25 search with {num_results} results for comparison', 'cost': estimated_cost}],
+                'cost_breakdown': self.cost_tracker
+            }
+            
+        except Exception as e:
+            st.error(f"❌ Error in comparative query processing: {e}")
+            return {
+                'answer': f"Error processing comparative query: {e}",
+                'sources': [],
+                'processing_stages': [{'stage': 'comparative_search', 'description': 'Error in search processing'}],
+                'cost_breakdown': self.cost_tracker
+            }
     
     def _process_general_query(self, question: str, proceeding: str, model: str, classification: Dict) -> Dict[str, Any]:
         """Process general queries using vector/BM25 search"""
@@ -850,11 +956,41 @@ This should be a comprehensive, executive-level summary that captures all the ke
             st.write(f"**Documents in Proceeding**: {len(proceeding_docs)}")
             st.write(f"**Model Used**: {model}")
         
-        # TODO: Implement actual vector/BM25 search here
-        # For now, return a placeholder
-        return {
-            'answer': "General query processing with vector/BM25 search not yet implemented. This would search for relevant documents to answer general questions about the proceeding.",
-            'sources': [],
-            'processing_stages': [{'stage': 'general_search', 'description': 'Vector/BM25 search for general information'}],
-            'cost_breakdown': self.cost_tracker
-        }
+        # Use the existing QA system for general queries with dynamic context
+        from analysis.qa_system import ask_question
+        
+        # Calculate dynamic number of results
+        num_results = self._get_dynamic_num_results(model, question, len(proceeding_docs))
+        
+        try:
+            # Use hybrid search for general queries
+            answer, sources = ask_question(
+                question=question,
+                vector_store=None,  # Will be passed from session state
+                bm25=None,  # Will be passed from session state
+                documents=proceeding_docs,
+                metadata=self.metadata,
+                model=model,
+                search_type="Hybrid (Recommended)",
+                num_results=num_results
+            )
+            
+            # Track costs (simplified for now)
+            estimated_cost = 0.01
+            self._track_cost('general_search', estimated_cost)
+            
+            return {
+                'answer': answer,
+                'sources': sources,
+                'processing_stages': [{'stage': 'general_search', 'description': f'Vector/BM25 search with {num_results} results', 'cost': estimated_cost}],
+                'cost_breakdown': self.cost_tracker
+            }
+            
+        except Exception as e:
+            st.error(f"❌ Error in general query processing: {e}")
+            return {
+                'answer': f"Error processing general query: {e}",
+                'sources': [],
+                'processing_stages': [{'stage': 'general_search', 'description': 'Error in search processing'}],
+                'cost_breakdown': self.cost_tracker
+            }
