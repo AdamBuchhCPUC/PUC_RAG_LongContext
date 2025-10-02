@@ -141,12 +141,22 @@ class DocumentProcessor:
         # Analyze document relationships for all documents in one LLM call per proceeding
         if metadata:
             st.write("🔍 Analyzing document relationships...")
-            all_relationships = self._analyze_all_document_relationships(metadata)
-            
-            # Add relationships to each document's metadata
-            for filename, doc_metadata in metadata.items():
-                if filename in all_relationships:
-                    doc_metadata['relationships'] = all_relationships[filename]
+            try:
+                all_relationships = self._analyze_all_document_relationships(metadata)
+                
+                # Add relationships to each document's metadata
+                for filename, doc_metadata in metadata.items():
+                    if filename in all_relationships:
+                        doc_metadata['relationships'] = all_relationships[filename]
+                
+                if all_relationships:
+                    st.success(f"✅ Successfully analyzed relationships for {len(all_relationships)} documents")
+                else:
+                    st.warning("⚠️ No relationships could be analyzed. Documents will be processed without relationship data.")
+                    
+            except Exception as e:
+                st.error(f"❌ Error in relationship analysis: {e}")
+                st.warning("⚠️ Continuing without relationship analysis...")
         
         if not documents:
             st.error("❌ No documents were processed successfully")
@@ -371,15 +381,46 @@ Example format:
 
 JSON:"""
 
-                llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-                response = llm.invoke(prompt)
-                
-                # Parse the JSON response
                 try:
-                    proceeding_relationships = json.loads(response.content.strip())
-                    all_relationships.update(proceeding_relationships)
-                except json.JSONDecodeError:
-                    st.warning(f"⚠️ Could not parse relationships for proceeding {proceeding}")
+                    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+                    response = llm.invoke(prompt)
+                except Exception as llm_error:
+                    st.error(f"❌ LLM call failed for proceeding {proceeding}: {llm_error}")
+                    continue
+                
+                # Parse the JSON response with better error handling
+                try:
+                    response_text = response.content.strip()
+                    
+                    # Try to extract JSON from the response if it's wrapped in other text
+                    if "```json" in response_text:
+                        # Extract JSON from code block
+                        start = response_text.find("```json") + 7
+                        end = response_text.find("```", start)
+                        if end != -1:
+                            response_text = response_text[start:end].strip()
+                    elif "```" in response_text:
+                        # Extract JSON from generic code block
+                        start = response_text.find("```") + 3
+                        end = response_text.find("```", start)
+                        if end != -1:
+                            response_text = response_text[start:end].strip()
+                    
+                    # Try to find JSON object boundaries
+                    if response_text.startswith('{') and response_text.endswith('}'):
+                        proceeding_relationships = json.loads(response_text)
+                        all_relationships.update(proceeding_relationships)
+                        st.success(f"✅ Analyzed relationships for {len(proceeding_relationships)} documents in proceeding {proceeding}")
+                    else:
+                        st.warning(f"⚠️ Invalid JSON format for proceeding {proceeding}. Response: {response_text[:200]}...")
+                        continue
+                        
+                except json.JSONDecodeError as json_error:
+                    st.warning(f"⚠️ Could not parse JSON for proceeding {proceeding}: {json_error}")
+                    st.write(f"Raw response: {response.content[:500]}...")
+                    continue
+                except Exception as parse_error:
+                    st.warning(f"⚠️ Error parsing relationships for proceeding {proceeding}: {parse_error}")
                     continue
             
             return all_relationships
