@@ -22,6 +22,18 @@ def create_qa_tab():
             st.warning("⏰ Processing timeout detected. Resetting state...")
             st.session_state.processing_question = False
             st.session_state.processing_start_time = 0
+            st.rerun()
+    
+    # Add manual reset button for stuck processing
+    if st.session_state.get('processing_question', False):
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.warning("⏳ Processing in progress...")
+        with col2:
+            if st.button("🔄 Reset", help="Reset processing state if stuck"):
+                st.session_state.processing_question = False
+                st.session_state.processing_start_time = 0
+                st.rerun()
     
     # Cost tracking section
     col1, col2 = st.columns([3, 1])
@@ -152,6 +164,10 @@ def create_qa_tab():
                             proceeding=selected_proceeding if selected_proceeding != "All Proceedings" else "",
                             model=model
                         )
+                        
+                        # Clear processing state immediately after getting result
+                        st.session_state.processing_question = False
+                        st.session_state.processing_start_time = 0
                 
                     # Display answer
                     st.subheader("💡 Answer")
@@ -212,13 +228,11 @@ def create_qa_tab():
                         # Update session state costs
                         st.session_state.total_qa_costs += cost_breakdown.get('total_cost', 0)
                     
-                    # Clear processing state on success
-                    st.session_state.processing_question = False
-                    
                 except Exception as e:
                     st.error(f"❌ Error processing question: {e}")
                     # Clear processing state on error
                     st.session_state.processing_question = False
+                    st.session_state.processing_start_time = 0
         else:
             st.warning("Please enter a question.")
     
