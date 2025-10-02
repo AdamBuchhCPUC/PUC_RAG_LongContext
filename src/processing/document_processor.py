@@ -340,8 +340,8 @@ class DocumentProcessor:
                 prompt = f"""
 You are analyzing a CPUC proceeding to identify document relationships. For each document, determine:
 
-1. Document role: "originating", "response", "decision", or "other"
-2. Response type: If it's a response, what type (e.g., "comment", "protest", "reply")
+1. Document role: "originating" (if it initiates an action or a series of comments - proposed decisions, motions, applications, etc), "response" (if it is meant to respond to another document - comments, protests, briefs, reply briefs, rulings on motions, etc), "other"
+2. Response type: If it's a response, what type (e.g., "comment", "protest", "reply comment", "brief", "reply brief", "ruling")
 3. Target document: If it's a response, which specific document is it responding to (use the filename)
 4. Filing timing: The filing date
 
