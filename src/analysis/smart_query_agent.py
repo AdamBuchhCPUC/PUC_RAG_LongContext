@@ -222,22 +222,44 @@ Focus on the user's intent within the specific CPUC proceeding and what they're 
         # Convert to originating documents list
         originating_documents = []
         for source, doc_info in source_documents.items():
-            # Combine all chunks for this document
-            combined_content = "\n\n".join([chunk.page_content for chunk in doc_info['chunks']])
+            # Combine all chunks for this document with page number preservation
+            combined_content_parts = []
+            all_page_numbers = set()
+            
+            for chunk in doc_info['chunks']:
+                # Add chunk content with page number markers
+                chunk_content = chunk.page_content
+                chunk_pages = chunk.metadata.get('page_numbers', [])
+                all_page_numbers.update(chunk_pages)
+                
+                # Add page number markers if they exist
+                if chunk_pages:
+                    page_marker = f" [PAGES {', '.join(map(str, sorted(chunk_pages)))}]"
+                    combined_content_parts.append(f"{chunk_content}{page_marker}")
+                else:
+                    combined_content_parts.append(chunk_content)
+            
+            combined_content = "\n\n".join(combined_content_parts)
+            
+            # Create enhanced metadata with page numbers
+            enhanced_metadata = doc_info['metadata'].copy()
+            enhanced_metadata['page_numbers'] = sorted(list(all_page_numbers))
+            enhanced_metadata['total_pages'] = len(all_page_numbers)
             
             # Create a single document with combined content
             combined_doc = Document(
                 page_content=combined_content,
-                metadata=doc_info['metadata']
+                metadata=enhanced_metadata
             )
             
             originating_documents.append({
                 'document': combined_doc,
-                'metadata': doc_info['metadata'],
+                'metadata': enhanced_metadata,
                 'type': doc_info['type'],
                 'filed_by': doc_info['filed_by'],
                 'filing_date': doc_info['filing_date'],
-                'chunks': doc_info['chunks']  # Keep reference to original chunks for page numbers
+                'chunks': doc_info['chunks'],  # Keep reference to original chunks
+                'page_numbers': sorted(list(all_page_numbers))  # All page numbers for this document
             })
         
         # Find response chains for each originating document
@@ -444,29 +466,33 @@ Focus on the user's intent within the specific CPUC proceeding and what they're 
             # Calculate dynamic max tokens based on model and content length
             max_tokens = self._get_dynamic_max_tokens(model, doc_content)
             
-            # Create detailed summarization prompt
+            # Create detailed summarization prompt with page number emphasis
+            page_info = ""
+            if 'page_numbers' in orig_doc and orig_doc['page_numbers']:
+                page_info = f"\n- Available Pages: {', '.join(map(str, orig_doc['page_numbers']))}"
+            
             prompt = f"""Please provide a comprehensive summary of this {orig_doc['type']} with maximum detail and specific page citations.
 
 DOCUMENT INFORMATION:
 - Type: {orig_doc['type']}
 - Filed by: {orig_doc['filed_by']}
 - Date: {orig_doc['filing_date']}
-- Source: {doc_metadata.get('filename', 'Unknown')}
+- Source: {doc_metadata.get('filename', 'Unknown')}{page_info}
 
 DOCUMENT CONTENT:
 {doc_content}
 
 Please provide a detailed summary that includes:
-1. **Executive Summary** (2-3 sentences)
+1. **Executive Summary** (2-3 sentences with page citations)
 2. **Key Arguments and Positions** (with specific page citations)
 3. **Regulatory Issues Addressed** (with page references)
 4. **Legal Conclusions and Holdings** (with page citations)
 5. **Impact and Implications** (with supporting page references)
 6. **Specific Recommendations or Requests** (with page citations)
 
-For each point, include specific page numbers where the information can be found. Use format: "According to page X..." or "As stated on page Y..."
+IMPORTANT: This document contains page number markers [PAGES X, Y, Z] throughout the content. Use these page numbers in your citations. For each point, include specific page numbers where the information can be found. Use format: "According to page X..." or "As stated on page Y..."
 
-Focus on extracting the maximum amount of detail while maintaining accuracy and providing clear citations."""
+Focus on extracting the maximum amount of detail while maintaining accuracy and providing clear page citations."""
 
             system_message = """You are an expert regulatory analyst specializing in CPUC proceedings. 
             Your task is to extract maximum detail from regulatory documents while providing specific page citations. 
