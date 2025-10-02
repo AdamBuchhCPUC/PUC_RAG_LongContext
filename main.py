@@ -7,6 +7,7 @@ import os
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
+import nltk
 
 # Fix for PyTorch/Streamlit watcher conflict
 os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
@@ -27,6 +28,22 @@ else:
 # Add src to path for imports
 src_path = script_dir / "src"
 sys.path.insert(0, str(src_path))
+
+# Download NLTK data if needed
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt')
+
+try:
+    nltk.data.find('tokenizers/punkt_tab')
+except LookupError:
+    nltk.download('punkt_tab')
+
+try:
+    nltk.data.find('corpora/stopwords')
+except LookupError:
+    nltk.download('stopwords')
 
 # Debug: Print environment info
 print(f"📁 Script directory: {script_dir}")
