@@ -117,10 +117,14 @@ class CPUCSeleniumScraper:
     def _setup_driver(self):
         """Setup Chrome driver optimized for Streamlit Cloud"""
         try:
+            from webdriver_manager.chrome import ChromeDriverManager
+            from selenium.webdriver.chrome.service import Service
+            import os
+            
             chrome_options = Options()
             
             # Essential options for Streamlit Cloud
-            chrome_options.add_argument("--headless")  # Always headless on cloud
+            chrome_options.add_argument("--headless")
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
             chrome_options.add_argument("--disable-gpu")
@@ -132,7 +136,7 @@ class CPUCSeleniumScraper:
             chrome_options.add_argument("--disable-blink-features=AutomationControlled")
             chrome_options.add_argument("--disable-extensions")
             chrome_options.add_argument("--disable-plugins")
-            chrome_options.add_argument("--disable-images")  # Faster loading
+            chrome_options.add_argument("--disable-images")
             chrome_options.add_argument("--disable-default-apps")
             chrome_options.add_argument("--disable-sync")
             chrome_options.add_argument("--disable-translate")
@@ -142,8 +146,41 @@ class CPUCSeleniumScraper:
             chrome_options.add_argument("--disable-background-timer-throttling")
             chrome_options.add_argument("--disable-backgrounding-occluded-windows")
             chrome_options.add_argument("--disable-renderer-backgrounding")
-            chrome_options.add_argument("--single-process")  # Important for Streamlit Cloud
+            chrome_options.add_argument("--single-process")
             chrome_options.add_argument("--disable-setuid-sandbox")
+            chrome_options.add_argument("--remote-debugging-port=9222")
+            chrome_options.add_argument("--disable-background-networking")
+            chrome_options.add_argument("--metrics-recording-only")
+            chrome_options.add_argument("--safebrowsing-disable-auto-update")
+            chrome_options.add_argument("--disable-ipc-flooding-protection")
+            chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+            chrome_options.add_argument("--disable-software-rasterizer")
+            chrome_options.add_argument("--disable-background-timer-throttling")
+            chrome_options.add_argument("--disable-renderer-backgrounding")
+            chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+            chrome_options.add_argument("--disable-client-side-phishing-detection")
+            chrome_options.add_argument("--disable-component-extensions-with-background-pages")
+            chrome_options.add_argument("--disable-default-apps")
+            chrome_options.add_argument("--disable-features=TranslateUI")
+            chrome_options.add_argument("--disable-ipc-flooding-protection")
+            chrome_options.add_argument("--disable-hang-monitor")
+            chrome_options.add_argument("--disable-prompt-on-repost")
+            chrome_options.add_argument("--disable-sync")
+            chrome_options.add_argument("--disable-domain-reliability")
+            chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+            chrome_options.add_argument("--disable-background-networking")
+            chrome_options.add_argument("--disable-background-timer-throttling")
+            chrome_options.add_argument("--disable-renderer-backgrounding")
+            chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+            chrome_options.add_argument("--disable-client-side-phishing-detection")
+            chrome_options.add_argument("--disable-component-extensions-with-background-pages")
+            chrome_options.add_argument("--disable-default-apps")
+            chrome_options.add_argument("--disable-features=TranslateUI")
+            chrome_options.add_argument("--disable-ipc-flooding-protection")
+            chrome_options.add_argument("--disable-hang-monitor")
+            chrome_options.add_argument("--disable-prompt-on-repost")
+            chrome_options.add_argument("--disable-sync")
+            chrome_options.add_argument("--disable-domain-reliability")
             
             chrome_options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
             chrome_options.add_experimental_option('useAutomationExtension', False)
@@ -155,8 +192,14 @@ class CPUCSeleniumScraper:
                 }
             })
             
-            # Set page load timeout
-            self.driver = webdriver.Chrome(options=chrome_options)
+            # Try to use system Chrome first, then fallback to webdriver-manager
+            try:
+                # Try system Chrome first (for Streamlit Cloud with packages.txt)
+                self.driver = webdriver.Chrome(options=chrome_options)
+            except Exception:
+                # Fallback to webdriver-manager
+                service = Service(ChromeDriverManager().install())
+                self.driver = webdriver.Chrome(service=service, options=chrome_options)
             self.driver.implicitly_wait(10)
             self.driver.set_page_load_timeout(30)  # 30 second timeout
             
@@ -175,6 +218,7 @@ class CPUCSeleniumScraper:
             st.error("2. Check if ChromeDriver is compatible with your Chrome version")
             st.error("3. Try running without headless mode first")
             st.error("4. Check if antivirus software is blocking ChromeDriver")
+            st.error("5. For Streamlit Cloud: Make sure packages.txt includes google-chrome-stable and chromedriver")
             raise
     
     def validate_proceeding_number(self, proceeding_number):
