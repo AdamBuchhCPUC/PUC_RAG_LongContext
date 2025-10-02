@@ -86,7 +86,7 @@ Before classifying this question, let's consider:
 3. What type of information or analysis would best serve their needs for understanding this proceeding's documents?
 4. Are they asking about originating documents (motions, proposed decisions) or responses to those documents?
 5. Do they need a comprehensive overview of the proceeding or specific factual information?
-6. **IMPORTANT**: If the question mentions specific document types (like "proposed decision", "motion", "application", "testimony"), focus ONLY on documents of that type. For example, if asking about a "proposed decision", only consider documents with document_type containing "Decision" or "Proposed Decision".
+6. **IMPORTANT**: If the question mentions specific document types (like "proposed decision", "motion", "application", "testimony"), focus on documents of that type. For example, if asking about a "proposed decision", consider documents with document_type containing "Decision" or "Proposed Decision". If there are multiple, focus on the most recent ones.
 7. Which specific documents from the available list are most likely to contain relevant information for this question?
 
 Think about the user's intent within the specific CPUC proceeding context and identify the most relevant documents for analysis. Pay special attention to document type matching."""
