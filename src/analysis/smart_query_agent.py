@@ -1195,13 +1195,41 @@ Please provide a comprehensive answer based on the context. If the context doesn
         """Process factual queries using vector/BM25 search with dynamic context management"""
         st.info("🔍 **Processing Factual Query with Vector/BM25 Search**")
         
-        # Filter documents by proceeding
-        proceeding_docs = [doc for doc in self.documents 
-                         if doc.metadata.get('proceeding', '') == proceeding]
+        # Filter documents by proceeding - check both metadata and source
+        proceeding_docs = []
+        for doc in self.documents:
+            # Check proceeding in document metadata
+            doc_proceeding = doc.metadata.get('proceeding', '')
+            # Also check if source document has proceeding info
+            source = doc.metadata.get('source', '')
+            if source in self.metadata:
+                source_proceeding = self.metadata[source].get('proceeding', '')
+            else:
+                source_proceeding = ''
+            
+            if doc_proceeding == proceeding or source_proceeding == proceeding:
+                proceeding_docs.append(doc)
+        
+        # Debug information
+        st.write(f"🔍 **Debug Info**:")
+        st.write(f"- Total documents available: {len(self.documents)}")
+        st.write(f"- Documents in proceeding '{proceeding}': {len(proceeding_docs)}")
+        if len(self.documents) > 0:
+            sample_proceedings = set()
+            for doc in self.documents[:10]:  # Check first 10 documents
+                doc_proceeding = doc.metadata.get('proceeding', '')
+                source = doc.metadata.get('source', '')
+                if source in self.metadata:
+                    source_proceeding = self.metadata[source].get('proceeding', '')
+                    if source_proceeding:
+                        sample_proceedings.add(source_proceeding)
+                if doc_proceeding:
+                    sample_proceedings.add(doc_proceeding)
+            st.write(f"- Sample proceedings found: {list(sample_proceedings)[:5]}")
         
         if not proceeding_docs:
             return {
-                'answer': "No documents found in this proceeding.",
+                'answer': f"No documents found in proceeding '{proceeding}'. Available proceedings may be different.",
                 'sources': [],
                 'processing_stages': [],
                 'cost_breakdown': self.cost_tracker
@@ -1230,37 +1258,42 @@ Please provide a comprehensive answer based on the context. If the context doesn
                 # Fallback to simple text search with priority documents
                 return self._simple_text_search_with_priority(question, proceeding_docs, model, num_results, classification)
             
-            # Use hybrid search for factual queries
-            answer, sources = ask_question(
-                question=question,
-                vector_store=vector_store,
-                bm25=bm25,
-                documents=proceeding_docs,
-                metadata=self.metadata,
-                model=model,
-                search_type="Hybrid (Recommended)",
-                num_results=num_results
-            )
-            
-            # Track costs (simplified for now)
-            estimated_cost = 0.01
-            self._track_cost('factual_search', estimated_cost)
-            
-            return {
-                'answer': answer,
-                'sources': sources,
-                'processing_stages': [{'stage': 'factual_search', 'description': f'Vector/BM25 search with {num_results} results', 'cost': estimated_cost}],
-                'cost_breakdown': self.cost_tracker
-            }
+            # Try to use the QA system, but with better error handling
+            try:
+                from .qa_system import ask_question
+                
+                # Use hybrid search for factual queries
+                answer, sources = ask_question(
+                    question=question,
+                    vector_store=vector_store,
+                    bm25=bm25,
+                    documents=proceeding_docs,
+                    metadata=self.metadata,
+                    model=model,
+                    search_type="Hybrid (Recommended)",
+                    num_results=num_results
+                )
+                
+                # Track costs (simplified for now)
+                estimated_cost = 0.01
+                self._track_cost('factual_search', estimated_cost)
+                
+                return {
+                    'answer': answer,
+                    'sources': sources,
+                    'processing_stages': [{'stage': 'factual_search', 'description': f'Vector/BM25 search with {num_results} results', 'cost': estimated_cost}],
+                    'cost_breakdown': self.cost_tracker
+                }
+                
+            except Exception as qa_error:
+                st.warning(f"⚠️ QA system error: {qa_error}. Falling back to simple text search.")
+                # Fallback to simple text search with priority documents
+                return self._simple_text_search_with_priority(question, proceeding_docs, model, num_results, classification)
             
         except Exception as e:
             st.error(f"❌ Error in factual query processing: {e}")
-            return {
-                'answer': f"Error processing factual query: {e}",
-                'sources': [],
-                'processing_stages': [{'stage': 'factual_search', 'description': 'Error in search processing'}],
-                'cost_breakdown': self.cost_tracker
-            }
+            # Final fallback to simple text search
+            return self._simple_text_search_with_priority(question, proceeding_docs, model, num_results, classification)
     
     def _process_comparative_query(self, question: str, proceeding: str, model: str, classification: Dict) -> Dict[str, Any]:
         """Process comparative queries using vector/BM25 search with dynamic context management"""
