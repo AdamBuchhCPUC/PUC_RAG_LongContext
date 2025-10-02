@@ -1,10 +1,11 @@
 """
 Q&A Tab
 Handles the question and answer interface for querying processed documents.
+Uses Smart Query Agent for intelligent query processing.
 """
 
 import streamlit as st
-from analysis.qa_system import ask_question
+from analysis.smart_query_agent import SmartQueryAgent
 from analysis.llm_utils import calculate_cost
 
 
@@ -40,6 +41,9 @@ def create_qa_tab():
     
     # Show data status
     st.success(f"✅ **Data Ready**: {len(st.session_state.documents)} chunks from {len(st.session_state.metadata)} documents")
+    
+    # Smart Query Agent info
+    st.info("🧠 **Smart Query Agent Active**: Queries are intelligently classified and processed with multi-stage summarization for complex requests.")
     
     # Question input
     st.subheader("💬 Ask a Question")
@@ -97,7 +101,7 @@ def create_qa_tab():
         if question.strip():
             try:
                 # Show processing
-                with st.spinner("🔍 Searching documents and generating answer..."):
+                with st.spinner("🧠 Smart Agent processing query..."):
                     # Apply filters
                     filtered_documents = st.session_state.documents
                     filtered_metadata = st.session_state.metadata
@@ -107,52 +111,91 @@ def create_qa_tab():
                             doc for doc in filtered_documents 
                             if doc.metadata.get('proceeding') == selected_proceeding
                         ]
+                        # Also filter metadata
+                        filtered_metadata = {
+                            k: v for k, v in filtered_metadata.items() 
+                            if v.get('proceeding') == selected_proceeding
+                        }
                     
                     if selected_doc_type != "All Types":
                         filtered_documents = [
                             doc for doc in filtered_documents 
                             if doc.metadata.get('document_type') == selected_doc_type
                         ]
+                        # Also filter metadata
+                        filtered_metadata = {
+                            k: v for k, v in filtered_metadata.items() 
+                            if v.get('document_type') == selected_doc_type
+                        }
                     
-                    # Ask question
-                    answer, sources = ask_question(
+                    # Initialize Smart Query Agent
+                    smart_agent = SmartQueryAgent(filtered_documents, filtered_metadata)
+                    
+                    # Process query with Smart Agent
+                    result = smart_agent.process_query(
                         question=question,
-                        vector_store=st.session_state.vector_store,
-                        bm25=st.session_state.bm25,
-                        documents=filtered_documents,
-                        metadata=filtered_metadata,
-                        model=model,
-                        search_type=search_type,
-                        num_results=num_results
+                        proceeding=selected_proceeding if selected_proceeding != "All Proceedings" else "",
+                        model=model
                     )
                 
                 # Display answer
                 st.subheader("💡 Answer")
-                st.write(answer)
+                st.write(result['answer'])
+                
+                # Display processing stages if available
+                if 'processing_stages' in result and result['processing_stages']:
+                    st.subheader("🔄 Processing Stages")
+                    for stage in result['processing_stages']:
+                        with st.expander(f"Stage {stage.get('stage', 'N/A')}: {stage.get('description', 'Unknown')}"):
+                            if 'documents_processed' in stage:
+                                st.write(f"**Documents Processed**: {stage['documents_processed']}")
+                            if 'cost' in stage:
+                                st.write(f"**Cost**: ${stage['cost']:.4f}")
+                            if 'model' in stage:
+                                st.write(f"**Model**: {stage['model']}")
+                            if 'output' in stage:
+                                st.write("**Output**:")
+                                if isinstance(stage['output'], list):
+                                    for i, item in enumerate(stage['output'], 1):
+                                        st.write(f"**{i}.** {item}")
+                                else:
+                                    st.write(stage['output'])
                 
                 # Display sources
-                if sources:
+                if result.get('sources'):
                     st.subheader("📚 Sources")
                     
-                    for source in sources:
-                        with st.expander(f"Source {source['rank']}: {source['source']} ({source['document_type']})"):
+                    for source in result['sources']:
+                        with st.expander(f"Source: {source.get('source', 'Unknown')} ({source.get('document_type', 'Unknown')})"):
                             col1, col2 = st.columns([2, 1])
                             
                             with col1:
-                                st.write(f"**Proceeding**: {source['proceeding']}")
-                                st.write(f"**Filed by**: {source['filed_by']}")
-                                st.write(f"**Chunk Level**: {source['chunk_level']}")
-                                if source['page_numbers']:
-                                    st.write(f"**Pages**: {', '.join(map(str, source['page_numbers']))}")
+                                st.write(f"**Type**: {source.get('type', 'Unknown')}")
+                                st.write(f"**Proceeding**: {source.get('proceeding', 'Unknown')}")
+                                st.write(f"**Filed by**: {source.get('filed_by', 'Unknown')}")
+                                st.write(f"**Filing Date**: {source.get('filing_date', 'Unknown')}")
+                                if source.get('response_to'):
+                                    st.write(f"**Response to**: {source['response_to']}")
                             
                             with col2:
-                                st.write("**Content Preview**:")
-                                st.text(source['content'])
+                                st.write("**Source Details**:")
+                                st.text(f"Document: {source.get('source', 'Unknown')}")
                 
-                # Track costs (simplified)
-                # Note: In a real implementation, you'd track actual token usage
-                estimated_cost = 0.01  # Simplified cost tracking
-                st.session_state.total_qa_costs += estimated_cost
+                # Display cost breakdown
+                if 'cost_breakdown' in result:
+                    cost_breakdown = result['cost_breakdown']
+                    st.subheader("💰 Cost Breakdown")
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Total Cost", f"${cost_breakdown.get('total_cost', 0):.4f}")
+                    with col2:
+                        st.metric("API Calls", cost_breakdown.get('call_count', 0))
+                    with col3:
+                        st.metric("Model Used", model)
+                    
+                    # Update session state costs
+                    st.session_state.total_qa_costs += cost_breakdown.get('total_cost', 0)
                 
             except Exception as e:
                 st.error(f"❌ Error processing question: {e}")
@@ -163,6 +206,7 @@ def create_qa_tab():
     st.subheader("💡 Example Questions")
     
     example_questions = [
+        "Summarize this proceeding and all party responses",
         "What are the main issues discussed in this proceeding?",
         "What positions do the different parties take?",
         "What are the key findings and conclusions?",
@@ -170,7 +214,8 @@ def create_qa_tab():
         "What are the cost implications discussed?",
         "What environmental considerations are raised?",
         "What safety requirements are discussed?",
-        "What are the proposed solutions or recommendations?"
+        "What are the proposed solutions or recommendations?",
+        "Compare the different party positions on the main issues"
     ]
     
     # Display example questions in columns
@@ -196,16 +241,16 @@ def create_qa_tab():
             del st.session_state.example_question
             st.rerun()
     
-    # Search configuration
-    st.subheader("⚙️ Search Configuration")
+    # Smart Query Agent configuration
+    st.subheader("⚙️ Smart Query Agent Configuration")
     
     col1, col2, col3 = st.columns(3)
     
     with col1:
         st.write(f"**Model**: {model}")
     with col2:
-        st.write(f"**Search Type**: {search_type}")
+        st.write(f"**Classification**: GPT-4o-mini")
     with col3:
-        st.write(f"**Results**: {num_results}")
+        st.write(f"**Processing**: Intelligent routing")
     
-    st.info("💡 **Tip**: Use specific, detailed questions for better results. The system searches through document content to find relevant information.")
+    st.info("💡 **Tip**: The Smart Query Agent will automatically classify your question and route it to the appropriate processing method. For summary requests, it will use multi-stage analysis with document chains. For factual questions, it will use targeted search.")
