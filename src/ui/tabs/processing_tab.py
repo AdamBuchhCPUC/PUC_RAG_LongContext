@@ -33,17 +33,30 @@ def create_processing_tab():
         st.warning("No documents found in the documents folder.")
         return
     
-    # Check processing status
-    processing_status = check_if_processing_needed(documents_folder)
-    
-    # Show status
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Documents", processing_status['total_documents'])
-    with col2:
-        st.metric("Processed", processing_status['processed'])
-    with col3:
-        st.metric("Unprocessed", processing_status['unprocessed'])
+    # Show accurate status based on what's actually loaded
+    if session_has_data:
+        # Data is loaded in memory - show session state numbers
+        total_chunks = len(st.session_state.documents) if st.session_state.documents else 0
+        total_docs = len(st.session_state.metadata) if st.session_state.metadata else 0
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Documents Loaded", total_docs)
+        with col2:
+            st.metric("Text Chunks", total_chunks)
+        with col3:
+            st.metric("Search Indexes", "✅ Ready" if st.session_state.get('vector_store') and st.session_state.get('bm25') else "❌ Missing")
+    else:
+        # No data in memory - check disk status
+        processing_status = check_if_processing_needed(documents_folder)
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Documents", processing_status['total_documents'])
+        with col2:
+            st.metric("Processed", processing_status['processed'])
+        with col3:
+            st.metric("Unprocessed", processing_status['unprocessed'])
     
     # Show current session state
     if session_has_data:
@@ -104,47 +117,55 @@ def create_processing_tab():
     # Processing section
     st.subheader("🔄 Process Documents")
     
-    if processing_status['needs_processing']:
-        st.info(f"📄 **{processing_status['unprocessed']} documents need processing**")
-        
-        # Get model from sidebar
-        model = st.session_state.get('selected_model', 'gpt-4o-mini')
-        
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            st.write(f"**Selected Model**: {model}")
-        with col2:
-            if st.button("🚀 Start Processing", type="primary"):
-                try:
-                    from processing.document_processor import DocumentProcessor
-                    
-                    # Initialize processor
-                    processor = DocumentProcessor(model=model)
-                    
-                    # Process documents
-                    with st.spinner("🔄 Processing documents..."):
-                        vector_store, bm25, documents, metadata = processor.process_documents(documents_folder)
-                    
-                    if vector_store is not None and bm25 is not None and documents and metadata:
-                        # Save processed data
-                        processor.save_processed_data(vector_store, bm25, documents, metadata)
-                        
-                        # Update session state
-                        st.session_state.vector_store = vector_store
-                        st.session_state.bm25 = bm25
-                        st.session_state.documents = documents
-                        st.session_state.metadata = metadata
-                        
-                        st.success("✅ Processing complete! Data is now ready for Q&A.")
-                        st.rerun()
-                    else:
-                        st.error("❌ Processing failed - no data was created")
-                        
-                except Exception as e:
-                    st.error(f"❌ Error during processing: {e}")
-    else:
-        st.success("✅ **All documents are already processed!**")
+    if session_has_data:
+        st.success("✅ **Data is already processed and loaded in memory!**")
         st.info("💡 Use the 'Ask Questions' tab to start querying your documents.")
+        st.info("💾 Use the 'Data Persistence' tab to save your work for future sessions.")
+    else:
+        # Check if we need to process documents
+        processing_status = check_if_processing_needed(documents_folder)
+        
+        if processing_status['needs_processing']:
+            st.info(f"📄 **{processing_status['unprocessed']} documents need processing**")
+            
+            # Get model from sidebar
+            model = st.session_state.get('selected_model', 'gpt-4o-mini')
+            
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.write(f"**Selected Model**: {model}")
+            with col2:
+                if st.button("🚀 Start Processing", type="primary"):
+                    try:
+                        from processing.document_processor import DocumentProcessor
+                        
+                        # Initialize processor
+                        processor = DocumentProcessor(model=model)
+                        
+                        # Process documents
+                        with st.spinner("🔄 Processing documents..."):
+                            vector_store, bm25, documents, metadata = processor.process_documents(documents_folder)
+                        
+                        if vector_store is not None and bm25 is not None and documents and metadata:
+                            # Save processed data
+                            processor.save_processed_data(vector_store, bm25, documents, metadata)
+                            
+                            # Update session state
+                            st.session_state.vector_store = vector_store
+                            st.session_state.bm25 = bm25
+                            st.session_state.documents = documents
+                            st.session_state.metadata = metadata
+                            
+                            st.success("✅ Processing complete! Data is now ready for Q&A.")
+                            st.rerun()
+                        else:
+                            st.error("❌ Processing failed - no data was created")
+                            
+                    except Exception as e:
+                        st.error(f"❌ Error during processing: {e}")
+        else:
+            st.success("✅ **All documents are already processed!**")
+            st.info("💡 Use the 'Ask Questions' tab to start querying your documents.")
     
     # Cache management
     st.subheader("🗄️ Cache Management")
