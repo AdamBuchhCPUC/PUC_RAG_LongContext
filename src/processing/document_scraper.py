@@ -11,46 +11,13 @@ from typing import List, Dict, Any
 import requests
 from datetime import datetime, timedelta
 
-# Selenium imports (optional for Streamlit Cloud)
-try:
-    from selenium import webdriver
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
-    from selenium.webdriver.chrome.options import Options
-    from selenium.common.exceptions import TimeoutException, NoSuchElementException
-    SELENIUM_AVAILABLE = True
-except ImportError:
-    SELENIUM_AVAILABLE = False
-    # Create dummy classes for when selenium is not available
-    class webdriver:
-        class Chrome:
-            def __init__(self, *args, **kwargs):
-                pass
-    class By:
-        TAG_NAME = "tag_name"
-        CSS_SELECTOR = "css_selector"
-        XPATH = "xpath"
-    class WebDriverWait:
-        def __init__(self, *args, **kwargs):
-            pass
-        def until(self, *args, **kwargs):
-            pass
-    class EC:
-        @staticmethod
-        def presence_of_element_located(*args, **kwargs):
-            pass
-    class Options:
-        def __init__(self):
-            pass
-        def add_argument(self, *args, **kwargs):
-            pass
-        def add_experimental_option(self, *args, **kwargs):
-            pass
-    class TimeoutException(Exception):
-        pass
-    class NoSuchElementException(Exception):
-        pass
+# Selenium imports
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 # Note: Using the same Chrome driver approach as the working rag_test.py
 
@@ -142,36 +109,30 @@ class DocumentCache:
 class CPUCSeleniumScraper:
     """Selenium-based scraper for CPUC documents"""
     
-    def __init__(self, headless=False):  # Changed default to False for debugging
+    def __init__(self, headless=True):  # Default to headless for Streamlit Cloud
         self.driver = None
         self.headless = headless
-        if SELENIUM_AVAILABLE:
-            self._setup_driver()
-        else:
-            st.warning("⚠️ Selenium not available - web scraping features disabled")
+        self._setup_driver()
     
     def _setup_driver(self):
-        """Setup Chrome driver with enhanced anti-detection measures"""
+        """Setup Chrome driver optimized for Streamlit Cloud"""
         try:
             chrome_options = Options()
-            if self.headless:
-                chrome_options.add_argument("--headless")
             
-            # Enhanced anti-detection Chrome options
+            # Essential options for Streamlit Cloud
+            chrome_options.add_argument("--headless")  # Always headless on cloud
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
             chrome_options.add_argument("--disable-gpu")
             chrome_options.add_argument("--disable-web-security")
-            chrome_options.add_argument("--disable-features=VizDisplayCompositor")
             chrome_options.add_argument("--window-size=1920,1080")
-            chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             chrome_options.add_argument("--log-level=3")
             chrome_options.add_argument("--silent")
             chrome_options.add_argument("--disable-blink-features=AutomationControlled")
             chrome_options.add_argument("--disable-extensions")
             chrome_options.add_argument("--disable-plugins")
             chrome_options.add_argument("--disable-images")  # Faster loading
-            # Note: Not disabling JavaScript as CPUC site likely needs it
             chrome_options.add_argument("--disable-default-apps")
             chrome_options.add_argument("--disable-sync")
             chrome_options.add_argument("--disable-translate")
@@ -181,6 +142,8 @@ class CPUCSeleniumScraper:
             chrome_options.add_argument("--disable-background-timer-throttling")
             chrome_options.add_argument("--disable-backgrounding-occluded-windows")
             chrome_options.add_argument("--disable-renderer-backgrounding")
+            chrome_options.add_argument("--single-process")  # Important for Streamlit Cloud
+            chrome_options.add_argument("--disable-setuid-sandbox")
             
             chrome_options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
             chrome_options.add_experimental_option('useAutomationExtension', False)
@@ -216,10 +179,6 @@ class CPUCSeleniumScraper:
     
     def validate_proceeding_number(self, proceeding_number):
         """Validate if a proceeding number exists and is accessible using CPUC docket system"""
-        if not SELENIUM_AVAILABLE:
-            st.error("❌ Selenium not available - cannot validate proceeding")
-            return False, "Selenium not available"
-        
         url = f"https://apps.cpuc.ca.gov/apex/f?p=401:56::::RP,57,RIR:P5_PROCEEDING_SELECT:{proceeding_number}"
         
         try:
@@ -438,10 +397,6 @@ class CPUCSeleniumScraper:
     
     def scrape_proceeding(self, proceeding_number, time_filter="Whole docket", keyword_filter="None", max_pages=10):
         """Scrape a CPUC proceeding for documents using the full CPUC docket system"""
-        if not SELENIUM_AVAILABLE:
-            st.error("❌ Selenium not available - web scraping disabled")
-            return 0
-        
         try:
             # Validate proceeding first
             is_valid, message = self.validate_proceeding_number(proceeding_number)
