@@ -172,9 +172,26 @@ Focus on the user's intent within the specific CPUC proceeding and what they're 
         """Discover document chains in a proceeding"""
         st.info("🔍 **Discovering Document Chains**")
         
-        # Filter documents by proceeding
-        proceeding_docs = [doc for doc in self.documents 
-                         if doc.metadata.get('proceeding', '') == proceeding]
+        # If proceeding is empty or "All Proceedings", use all documents
+        # Otherwise, documents should already be filtered by the UI
+        if not proceeding or proceeding == "All Proceedings":
+            proceeding_docs = self.documents
+            st.write(f"🔍 **Using all documents**: {len(proceeding_docs)} documents available")
+        else:
+            # Double-check filtering by proceeding (in case documents weren't pre-filtered)
+            proceeding_docs = [doc for doc in self.documents 
+                             if doc.metadata.get('proceeding', '') == proceeding]
+            st.write(f"🔍 **Filtered by proceeding '{proceeding}'**: {len(proceeding_docs)} documents found")
+            
+            # Debug: Show what proceedings are actually in the documents
+            if len(proceeding_docs) == 0:
+                st.warning("⚠️ No documents found for this proceeding. Available proceedings:")
+                proceedings = set()
+                for doc in self.documents:
+                    proc = doc.metadata.get('proceeding', 'No proceeding')
+                    proceedings.add(proc)
+                for proc in sorted(proceedings):
+                    st.write(f"  - {proc}")
         
         # Find originating documents (motions, proposed decisions, scoping rulings, etc.)
         originating_documents = []
