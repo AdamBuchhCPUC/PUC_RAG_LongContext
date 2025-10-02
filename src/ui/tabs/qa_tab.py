@@ -36,8 +36,6 @@ def create_qa_tab():
     # Get sidebar configuration
     sidebar_config = st.session_state.get('sidebar_config', {})
     model = sidebar_config.get('model', 'gpt-4o-mini')
-    search_type = sidebar_config.get('search_type', 'Hybrid (Recommended)')
-    num_results = sidebar_config.get('num_results', 10)
     
     # Show data status
     st.success(f"✅ **Data Ready**: {len(st.session_state.documents)} chunks from {len(st.session_state.metadata)} documents")
@@ -251,6 +249,6 @@ def create_qa_tab():
     with col2:
         st.write(f"**Classification**: GPT-4o-mini")
     with col3:
-        st.write(f"**Processing**: Intelligent routing")
+        st.write(f"**Context Management**: Dynamic")
     
-    st.info("💡 **Tip**: The Smart Query Agent will automatically classify your question and route it to the appropriate processing method. For summary requests, it will use multi-stage analysis with document chains. For factual questions, it will use targeted search.")
+    st.info("💡 **Tip**: The Smart Query Agent automatically manages context based on your query type and selected model. Summary queries use document chains, while factual queries use targeted search with dynamic context sizing.")

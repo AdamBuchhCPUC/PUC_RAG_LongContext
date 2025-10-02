@@ -88,23 +88,14 @@ def create_sidebar() -> Dict[str, Any]:
         )
         st.session_state.text_verbosity_setting = text_verbosity
     
-    # Search configuration
-    st.sidebar.subheader("🔍 Search Settings")
+    # Smart Query Agent configuration
+    st.sidebar.subheader("🧠 Smart Query Agent")
     
-    search_type = st.sidebar.selectbox(
-        "Search Type:",
-        options=["Hybrid (Recommended)", "Vector Search", "Keyword Search"],
-        index=0,
-        help="Hybrid combines vector similarity and keyword matching for best results"
-    )
-    
-    num_results = st.sidebar.slider(
-        "Number of Results:",
-        min_value=3,
-        max_value=20,
-        value=10,
-        help="Number of document chunks to retrieve for answering questions"
-    )
+    st.sidebar.info("🤖 **Smart Agent Active**")
+    st.sidebar.info("• **Classification**: GPT-4o-mini")
+    st.sidebar.info("• **Summary Queries**: Multi-stage processing")
+    st.sidebar.info("• **Other Queries**: Vector/BM25 search")
+    st.sidebar.info("• **Context Management**: Dynamic based on model and query type")
     
     # Cost tracking
     st.sidebar.subheader("💰 Cost Tracking")
@@ -138,8 +129,6 @@ def create_sidebar() -> Dict[str, Any]:
     # Return configuration
     return {
         'model': selected_model,
-        'search_type': search_type,
-        'num_results': num_results,
         'reasoning_effort': st.session_state.get('reasoning_effort_setting', 'low'),
         'text_verbosity': st.session_state.get('text_verbosity_setting', 'low')
     }
