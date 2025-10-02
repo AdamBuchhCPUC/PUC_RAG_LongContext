@@ -205,18 +205,18 @@ Focus on the user's intent within the specific CPUC proceeding and identify whic
     
     def _discover_document_chains(self, proceeding: str, classification: Dict = None) -> Dict[str, Any]:
         """Discover document chains in a proceeding"""
-        st.info("🔍 **Discovering Document Chains**")
+        # Removed verbose output
         
         # If proceeding is empty or "All Proceedings", use all documents
         # Otherwise, documents should already be filtered by the UI
         if not proceeding or proceeding == "All Proceedings":
             proceeding_docs = self.documents
-            st.write(f"🔍 **Using all documents**: {len(proceeding_docs)} documents available")
+            # Removed verbose output
         else:
             # Double-check filtering by proceeding (in case documents weren't pre-filtered)
             proceeding_docs = [doc for doc in self.documents 
                              if doc.metadata.get('proceeding', '') == proceeding]
-            st.write(f"🔍 **Filtered by proceeding '{proceeding}'**: {len(proceeding_docs)} documents found")
+            # Removed verbose output
             
             # Debug: Show what proceedings are actually in the documents
             if len(proceeding_docs) == 0:
@@ -303,7 +303,7 @@ Focus on the user's intent within the specific CPUC proceeding and identify whic
             responses = self.relationship_analyzer.find_responses_to_document(orig_doc['metadata'])
             response_chains[orig_doc['metadata']['filename']] = responses
         
-        st.success(f"✅ Found {len(originating_documents)} originating documents with response chains")
+        # Removed verbose output
         
         # Display document list for transparency
         with st.expander("📋 **Documents to be Analyzed**", expanded=False):
@@ -341,7 +341,7 @@ Focus on the user's intent within the specific CPUC proceeding and identify whic
     
     def _multi_stage_summarization(self, question: str, document_chains: Dict, model: str) -> Dict[str, Any]:
         """Multi-stage summarization with detailed extraction and page citations"""
-        st.info("📝 **Multi-Stage Summarization Process**")
+        # Removed verbose output
         
         # Display analysis plan
         with st.expander("📋 **Analysis Plan**", expanded=True):

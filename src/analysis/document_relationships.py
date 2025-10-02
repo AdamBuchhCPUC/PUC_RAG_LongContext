@@ -31,7 +31,7 @@ class DocumentRelationshipAnalyzer:
         if not selected_document:
             return []
         
-        st.info(f"🔍 Finding response documents for: {selected_document.get('document_type', 'Unknown')}")
+        # Removed verbose output
         
         response_docs = []
         target_doc_type = selected_document.get('document_type', '').lower()
@@ -100,7 +100,7 @@ class DocumentRelationshipAnalyzer:
         self.relationship_stats['response_documents_found'] = len(response_docs)
         self.relationship_stats['total_relationships_analyzed'] += 1
         
-        st.success(f"✅ Found {len(response_docs)} potential response documents")
+        # Removed verbose output
         
         return response_docs
     
@@ -112,7 +112,7 @@ class DocumentRelationshipAnalyzer:
         target_filed_by = selected_document.get('filed_by', '').lower()
         target_proceeding = selected_document.get('proceeding', '')
         
-        st.info(f"🔍 Finding documents from same party: {target_filed_by}")
+        # Removed verbose output
         
         party_relationships = []
         
@@ -144,7 +144,7 @@ class DocumentRelationshipAnalyzer:
         
         self.relationship_stats['party_relationships_found'] = len(party_relationships)
         
-        st.success(f"✅ Found {len(party_relationships)} documents from same party")
+        # Removed verbose output
         
         return party_relationships
     
