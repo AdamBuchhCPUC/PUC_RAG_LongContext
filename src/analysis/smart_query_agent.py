@@ -62,12 +62,16 @@ class SmartQueryAgent:
                     if doc_proceeding != proceeding:
                         continue
                 
+                # Analyze relationships for this document
+                relationships = self._analyze_document_relationships(doc, doc_meta)
+                
                 available_docs.append({
                     'filename': source,
                     'document_type': doc_meta.get('document_type', 'Unknown'),
                     'filed_by': doc_meta.get('filed_by', 'Unknown'),
                     'filing_date': doc_meta.get('filing_date', 'Unknown'),
-                    'description': doc_meta.get('description', '')[:200] + '...' if len(doc_meta.get('description', '')) > 200 else doc_meta.get('description', '')
+                    'description': doc_meta.get('description', '')[:200] + '...' if len(doc_meta.get('description', '')) > 200 else doc_meta.get('description', ''),
+                    'relationships': relationships
                 })
         
         
@@ -90,7 +94,7 @@ Before classifying this question, let's consider:
 7. **CLASSIFICATION HINT**: Questions like "What was the [document type] here?" or "What did the [document type] say?" are asking for a SUMMARY of that specific document type, not just factual information.
 8. Which specific documents from the available list are most likely to contain relevant information for this question?
 
-Think about the user's intent within the specific CPUC proceeding context and identify the most relevant documents for analysis. Pay special attention to document type matching and whether they want a summary or just facts."""
+Think about the user's intent within the specific CPUC proceeding context and identify the most relevant documents for analysis. Pay special attention to document type matching and whether they want a summary or just facts. Ignore orders extending statutory deadlines"""
 
         stepback_system = """You are an expert regulatory analyst who helps clarify user questions about CPUC proceedings. 
         Think step by step about what the user is really asking for, considering the regulatory context and their underlying needs."""
@@ -908,7 +912,7 @@ This should be a comprehensive, executive-level summary that captures all the ke
         return context_limits.get(model, {'max_context_tokens': 8000, 'reserved_tokens': 2000})
     
     def _format_documents_for_analysis(self, documents: List[Dict]) -> str:
-        """Format documents for stepback analysis"""
+        """Format documents for stepback analysis with relationship information"""
         if not documents:
             return "No documents available"
         
@@ -929,10 +933,67 @@ This should be a comprehensive, executive-level summary that captures all the ke
                 formatted.append(f"     - Date: {doc['filing_date']}")
                 if doc['description']:
                     formatted.append(f"     - Description: {doc['description']}")
+                
+                # Add relationship information if available
+                if 'relationships' in doc:
+                    relationships = doc['relationships']
+                    if relationships:
+                        formatted.append(f"     - Relationships:")
+                        for rel_type, rel_info in relationships.items():
+                            if rel_info:
+                                formatted.append(f"       • {rel_type}: {rel_info}")
+                
                 formatted.append("")
             formatted.append("")
         
         return "\n".join(formatted)
+    
+    def _analyze_document_relationships(self, doc: Document, doc_meta: Dict[str, Any]) -> Dict[str, str]:
+        """Analyze relationships for a single document"""
+        relationships = {}
+        
+        try:
+            # Check if this document is a response to another document
+            doc_type = doc_meta.get('document_type', '').lower()
+            description = doc_meta.get('description', '').lower()
+            
+            # Look for response indicators
+            response_indicators = [
+                'response', 'reply', 'comment', 'protest', 'opposition', 'support',
+                'objection', 'agreement', 'disagreement', 'concern', 'recommendation'
+            ]
+            
+            is_response = any(indicator in description for indicator in response_indicators)
+            if is_response:
+                relationships['response_type'] = 'Appears to be a response document'
+            
+            # Check if this is an originating document
+            originating_types = ['application', 'motion', 'petition', 'proposed decision', 'decision']
+            is_originating = any(orig_type in doc_type for orig_type in originating_types)
+            if is_originating:
+                relationships['document_role'] = 'Originating document'
+            
+            # Check for party relationships
+            filed_by = doc_meta.get('filed_by', '')
+            if 'cpuc' in filed_by.lower() or 'commission' in filed_by.lower():
+                relationships['party_type'] = 'Regulatory authority (CPUC)'
+            elif 'utility' in filed_by.lower() or 'company' in filed_by.lower():
+                relationships['party_type'] = 'Utility/Company'
+            elif 'consumer' in filed_by.lower() or 'advocate' in filed_by.lower():
+                relationships['party_type'] = 'Consumer advocate'
+            else:
+                relationships['party_type'] = 'Other party'
+            
+            # Check for chronological relationships
+            filing_date = doc_meta.get('filing_date', '')
+            if filing_date:
+                relationships['filing_timing'] = f"Filed on {filing_date}"
+            
+        except Exception as e:
+            # If relationship analysis fails, continue without it
+            pass
+        
+        return relationships
     
     def _simple_text_search(self, question: str, documents: List[Document], model: str, num_results: int) -> Dict[str, Any]:
         """Simple text search fallback when vector/BM25 search is not available"""
