@@ -876,6 +876,93 @@ This should be a comprehensive, executive-level summary that captures all the ke
         
         return context_limits.get(model, {'max_context_tokens': 8000, 'reserved_tokens': 2000})
     
+    def _simple_text_search(self, question: str, documents: List[Document], model: str, num_results: int) -> Dict[str, Any]:
+        """Simple text search fallback when vector/BM25 search is not available"""
+        st.info("🔍 **Using Simple Text Search**")
+        
+        # Simple keyword matching
+        question_lower = question.lower()
+        question_words = set(question_lower.split())
+        
+        scored_docs = []
+        for doc in documents:
+            content_lower = doc.page_content.lower()
+            # Count word matches
+            matches = sum(1 for word in question_words if word in content_lower)
+            if matches > 0:
+                scored_docs.append((doc, matches))
+        
+        # Sort by match count and take top results
+        scored_docs.sort(key=lambda x: x[1], reverse=True)
+        relevant_docs = [doc for doc, score in scored_docs[:num_results]]
+        
+        if not relevant_docs:
+            return {
+                'answer': "No relevant documents found for your question.",
+                'sources': [],
+                'processing_stages': [{'stage': 'simple_search', 'description': 'Simple text search fallback'}],
+                'cost_breakdown': self.cost_tracker
+            }
+        
+        # Generate answer using LLM
+        context = "\n\n".join([doc.page_content for doc in relevant_docs])
+        
+        prompt = f"""Based on the following context from CPUC regulatory documents, please answer the question.
+
+Context:
+{context}
+
+Question: {question}
+
+Please provide a comprehensive answer based on the context. If the context doesn't contain enough information to answer the question, please say so."""
+        
+        try:
+            response_content, usage = make_openai_call(
+                prompt=prompt,
+                system_message="You are an expert regulatory analyst. Provide accurate analysis based on the provided context.",
+                model=model,
+                max_tokens=2000,
+                temperature=0.1,
+                return_usage=True
+            )
+            
+            # Track costs
+            if usage:
+                input_tokens = usage.get('prompt_tokens', 0)
+                output_tokens = usage.get('completion_tokens', 0)
+                cost = calculate_cost(input_tokens, output_tokens, model)
+                self._track_cost('simple_search', cost)
+            
+            # Prepare sources
+            sources = []
+            for doc in relevant_docs:
+                source = doc.metadata.get('source', 'Unknown')
+                if source in self.metadata:
+                    doc_meta = self.metadata[source]
+                    sources.append({
+                        'source': source,
+                        'document_type': doc_meta.get('document_type', 'Unknown'),
+                        'filed_by': doc_meta.get('filed_by', 'Unknown'),
+                        'filing_date': doc_meta.get('filing_date', 'Unknown'),
+                        'relevance_score': 'Simple text match'
+                    })
+            
+            return {
+                'answer': response_content,
+                'sources': sources,
+                'processing_stages': [{'stage': 'simple_search', 'description': f'Simple text search with {len(relevant_docs)} results', 'cost': self.cost_tracker['stage_costs'].get('simple_search', 0)}],
+                'cost_breakdown': self.cost_tracker
+            }
+            
+        except Exception as e:
+            st.error(f"❌ Error in simple text search: {e}")
+            return {
+                'answer': f"Error processing query: {e}",
+                'sources': [],
+                'processing_stages': [{'stage': 'simple_search', 'description': 'Error in simple search'}],
+                'cost_breakdown': self.cost_tracker
+            }
+    
     def _process_factual_query(self, question: str, proceeding: str, model: str, classification: Dict) -> Dict[str, Any]:
         """Process factual queries using vector/BM25 search with dynamic context management"""
         st.info("🔍 **Processing Factual Query with Vector/BM25 Search**")
@@ -906,11 +993,20 @@ This should be a comprehensive, executive-level summary that captures all the ke
         num_results = self._get_dynamic_num_results(model, question, len(proceeding_docs))
         
         try:
+            # Get search components from session state
+            vector_store = st.session_state.get('vector_store', None)
+            bm25 = st.session_state.get('bm25', None)
+            
+            if vector_store is None or bm25 is None:
+                st.warning("⚠️ Vector store or BM25 not available. Using simple text search.")
+                # Fallback to simple text search
+                return self._simple_text_search(question, proceeding_docs, model, num_results)
+            
             # Use hybrid search for factual queries
             answer, sources = ask_question(
                 question=question,
-                vector_store=None,  # Will be passed from session state
-                bm25=None,  # Will be passed from session state
+                vector_store=vector_store,
+                bm25=bm25,
                 documents=proceeding_docs,
                 metadata=self.metadata,
                 model=model,
@@ -969,11 +1065,20 @@ This should be a comprehensive, executive-level summary that captures all the ke
         num_results = min(num_results * 2, 20)  # Double for comparative analysis
         
         try:
+            # Get search components from session state
+            vector_store = st.session_state.get('vector_store', None)
+            bm25 = st.session_state.get('bm25', None)
+            
+            if vector_store is None or bm25 is None:
+                st.warning("⚠️ Vector store or BM25 not available. Using simple text search.")
+                # Fallback to simple text search
+                return self._simple_text_search(question, proceeding_docs, model, num_results)
+            
             # Use hybrid search for comparative queries
             answer, sources = ask_question(
                 question=question,
-                vector_store=None,  # Will be passed from session state
-                bm25=None,  # Will be passed from session state
+                vector_store=vector_store,
+                bm25=bm25,
                 documents=proceeding_docs,
                 metadata=self.metadata,
                 model=model,
@@ -1031,11 +1136,20 @@ This should be a comprehensive, executive-level summary that captures all the ke
         num_results = self._get_dynamic_num_results(model, question, len(proceeding_docs))
         
         try:
+            # Get search components from session state
+            vector_store = st.session_state.get('vector_store', None)
+            bm25 = st.session_state.get('bm25', None)
+            
+            if vector_store is None or bm25 is None:
+                st.warning("⚠️ Vector store or BM25 not available. Using simple text search.")
+                # Fallback to simple text search
+                return self._simple_text_search(question, proceeding_docs, model, num_results)
+            
             # Use hybrid search for general queries
             answer, sources = ask_question(
                 question=question,
-                vector_store=None,  # Will be passed from session state
-                bm25=None,  # Will be passed from session state
+                vector_store=vector_store,
+                bm25=bm25,
                 documents=proceeding_docs,
                 metadata=self.metadata,
                 model=model,
