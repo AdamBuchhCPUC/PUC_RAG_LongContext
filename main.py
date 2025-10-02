@@ -34,7 +34,11 @@ print(f"📁 Src path: {src_path}")
 print(f"🔑 API Key loaded: {'Yes' if os.getenv('OPENAI_API_KEY') else 'No'}")
 
 try:
-    from ui.main_interface import main
+    # Try different import paths for Streamlit Cloud
+    try:
+        from ui.main_interface import main
+    except ImportError:
+        from src.ui.main_interface import main
     
     if __name__ == "__main__":
         main()
@@ -42,4 +46,7 @@ try:
 except ImportError as e:
     print(f"❌ Import error: {e}")
     print("Make sure all required modules are in the src/ directory")
-    sys.exit(1)
+    # Don't exit, let Streamlit handle the error
+    import streamlit as st
+    st.error(f"❌ Import error: {e}")
+    st.error("Make sure all required modules are in the src/ directory")
