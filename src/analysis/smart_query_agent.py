@@ -62,8 +62,8 @@ class SmartQueryAgent:
                     if doc_proceeding != proceeding:
                         continue
                 
-                # Analyze relationships for this document
-                relationships = self._analyze_document_relationships(doc, doc_meta)
+                # Get relationships from metadata (analyzed during processing)
+                relationships = doc_meta.get('relationships', {})
                 
                 available_docs.append({
                     'filename': source,
@@ -948,52 +948,6 @@ This should be a comprehensive, executive-level summary that captures all the ke
         
         return "\n".join(formatted)
     
-    def _analyze_document_relationships(self, doc: Document, doc_meta: Dict[str, Any]) -> Dict[str, str]:
-        """Analyze relationships for a single document"""
-        relationships = {}
-        
-        try:
-            # Check if this document is a response to another document
-            doc_type = doc_meta.get('document_type', '').lower()
-            description = doc_meta.get('description', '').lower()
-            
-            # Look for response indicators
-            response_indicators = [
-                'response', 'reply', 'comment', 'protest', 'opposition', 'support',
-                'objection', 'agreement', 'disagreement', 'concern', 'recommendation'
-            ]
-            
-            is_response = any(indicator in description for indicator in response_indicators)
-            if is_response:
-                relationships['response_type'] = 'Appears to be a response document'
-            
-            # Check if this is an originating document
-            originating_types = ['application', 'motion', 'petition', 'proposed decision', 'decision']
-            is_originating = any(orig_type in doc_type for orig_type in originating_types)
-            if is_originating:
-                relationships['document_role'] = 'Originating document'
-            
-            # Check for party relationships
-            filed_by = doc_meta.get('filed_by', '')
-            if 'cpuc' in filed_by.lower() or 'commission' in filed_by.lower():
-                relationships['party_type'] = 'Regulatory authority (CPUC)'
-            elif 'utility' in filed_by.lower() or 'company' in filed_by.lower():
-                relationships['party_type'] = 'Utility/Company'
-            elif 'consumer' in filed_by.lower() or 'advocate' in filed_by.lower():
-                relationships['party_type'] = 'Consumer advocate'
-            else:
-                relationships['party_type'] = 'Other party'
-            
-            # Check for chronological relationships
-            filing_date = doc_meta.get('filing_date', '')
-            if filing_date:
-                relationships['filing_timing'] = f"Filed on {filing_date}"
-            
-        except Exception as e:
-            # If relationship analysis fails, continue without it
-            pass
-        
-        return relationships
     
     def _simple_text_search(self, question: str, documents: List[Document], model: str, num_results: int) -> Dict[str, Any]:
         """Simple text search fallback when vector/BM25 search is not available"""

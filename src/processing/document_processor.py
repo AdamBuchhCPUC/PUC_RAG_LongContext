@@ -124,6 +124,11 @@ class DocumentProcessor:
                 doc_metadata['filename'] = pdf_path.name
                 doc_metadata['processed'] = True
                 
+                # Analyze document relationships
+                relationships = self._analyze_document_relationships(doc_metadata)
+                if relationships:
+                    doc_metadata['relationships'] = relationships
+                
                 # Create hierarchical chunks
                 chunks = self.hierarchical_chunker.create_hierarchical_chunks(text, doc_metadata)
                 documents.extend(chunks)
@@ -292,7 +297,97 @@ class DocumentProcessor:
             else:
                 st.warning("⚠️ No files could be cleared - they may be in use")
                 return False
-                
+    
+    def _analyze_document_relationships(self, doc_metadata: Dict[str, Any]) -> Dict[str, str]:
+        """Analyze relationships for a single document during processing"""
+        relationships = {}
+        
+        try:
+            # Check if this document is a response to another document
+            doc_type = doc_metadata.get('document_type', '').lower()
+            description = doc_metadata.get('description', '').lower()
+            
+            # Look for response indicators
+            response_indicators = [
+                'response', 'reply', 'comment', 'protest', 'opposition', 'support',
+                'objection', 'agreement', 'disagreement', 'concern', 'recommendation'
+            ]
+            
+            is_response = any(indicator in description for indicator in response_indicators)
+            if is_response:
+                # Try to identify what document this is responding to
+                target_doc = self._identify_response_target(doc_metadata, description)
+                if target_doc:
+                    relationships['response_type'] = f"Response to: {target_doc}"
+                else:
+                    relationships['response_type'] = 'Appears to be a response document'
+            
+            # Check if this is an originating document
+            originating_types = ['application', 'motion', 'petition', 'proposed decision', 'decision']
+            is_originating = any(orig_type in doc_type for orig_type in originating_types)
+            if is_originating:
+                relationships['document_role'] = 'Originating document'
+            
+            
+            # Check for chronological relationships
+            filing_date = doc_metadata.get('filing_date', '')
+            if filing_date:
+                relationships['filing_timing'] = f"Filed on {filing_date}"
+            
         except Exception as e:
-            st.error(f"Error clearing processed data: {e}")
-            return False
+            # If relationship analysis fails, continue without it
+            pass
+        
+        return relationships
+    
+    def _identify_response_target(self, doc_metadata: Dict[str, Any], description: str) -> str:
+        """Identify which document this response is targeting"""
+        try:
+            import re
+            
+            # Look for specific document references in the description
+            # Common patterns: "response to [document type]", "reply to [document type]", etc.
+            
+            # Check for specific document type references
+            target_patterns = [
+                r'response to (?:the )?([^,\.]+)',
+                r'reply to (?:the )?([^,\.]+)',
+                r'comment on (?:the )?([^,\.]+)',
+                r'protest of (?:the )?([^,\.]+)',
+                r'opposition to (?:the )?([^,\.]+)',
+                r'objection to (?:the )?([^,\.]+)',
+                r'regarding (?:the )?([^,\.]+)',
+                r'concerning (?:the )?([^,\.]+)'
+            ]
+            
+            for pattern in target_patterns:
+                match = re.search(pattern, description, re.IGNORECASE)
+                if match:
+                    target = match.group(1).strip()
+                    # Clean up the target description
+                    target = re.sub(r'\s+', ' ', target)  # Remove extra spaces
+                    target = target[:100]  # Limit length
+                    return target
+            
+            # Look for proceeding-specific references
+            proceeding = doc_metadata.get('proceeding', '')
+            if proceeding and proceeding in description:
+                return f"proceeding {proceeding}"
+            
+            # Look for date-based references
+            date_patterns = [
+                r'filed on ([^,\.]+)',
+                r'dated ([^,\.]+)',
+                r'from ([^,\.]+)'
+            ]
+            
+            for pattern in date_patterns:
+                match = re.search(pattern, description, re.IGNORECASE)
+                if match:
+                    target = match.group(1).strip()
+                    return f"document {target}"
+            
+            return None
+            
+        except Exception:
+            return None
