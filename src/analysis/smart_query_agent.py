@@ -1160,7 +1160,7 @@ Please provide a comprehensive answer based on the context. If the context doesn
                 # Fallback to simple text search with priority documents
                 return self._simple_text_search_with_priority(question, proceeding_docs, model, num_results, classification)
             
-            # Use hybrid search for factual queries with priority documents
+            # Use hybrid search for factual queries
             answer, sources = ask_question(
                 question=question,
                 vector_store=vector_store,
@@ -1169,8 +1169,7 @@ Please provide a comprehensive answer based on the context. If the context doesn
                 metadata=self.metadata,
                 model=model,
                 search_type="Hybrid (Recommended)",
-                num_results=num_results,
-                high_priority_documents=classification.get('high_priority_documents', [])
+                num_results=num_results
             )
             
             # Track costs (simplified for now)
