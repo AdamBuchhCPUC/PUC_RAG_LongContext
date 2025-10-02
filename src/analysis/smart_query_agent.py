@@ -577,17 +577,71 @@ Focus on extracting the maximum amount of detail while maintaining accuracy and 
             if not responses:
                 continue
                 
-            st.write(f"📝 **Summarizing {len(responses)} responses to {orig_filename}**")
+            # Group response chunks by source document to avoid duplicates
+            response_documents = {}  # filename -> {metadata, chunks}
             
-            for i, response in enumerate(responses, 1):
+            for response in responses:
                 doc = response['document']
                 doc_meta = doc.metadata
+                source = doc_meta.get('source', '')
                 
-                # Get document metadata
-                if doc_meta.get('source', '') in self.metadata:
-                    full_meta = self.metadata[doc_meta.get('source', '')]
-                else:
-                    full_meta = doc_meta
+                if source not in response_documents:
+                    # Get full metadata
+                    if source in self.metadata:
+                        full_meta = self.metadata[source]
+                    else:
+                        full_meta = doc_meta
+                    
+                    response_documents[source] = {
+                        'metadata': full_meta,
+                        'chunks': [],
+                        'type': full_meta.get('document_type', 'Unknown'),
+                        'filed_by': full_meta.get('filed_by', 'Unknown'),
+                        'filing_date': full_meta.get('filing_date', 'Unknown')
+                    }
+                
+                response_documents[source]['chunks'].append(doc)
+            
+            st.write(f"📝 **Summarizing {len(response_documents)} response documents to {orig_filename}**")
+            
+            # Process each response document (combining chunks)
+            for source, doc_info in response_documents.items():
+                # Combine all chunks for this document with page number preservation
+                combined_content_parts = []
+                all_page_numbers = set()
+                
+                for chunk in doc_info['chunks']:
+                    # Add chunk content with page number markers
+                    chunk_content = chunk.page_content
+                    chunk_pages = chunk.metadata.get('page_numbers', [])
+                    all_page_numbers.update(chunk_pages)
+                    
+                    # Add page number markers if they exist
+                    if chunk_pages:
+                        page_marker = f" [PAGES {', '.join(map(str, sorted(chunk_pages)))}]"
+                        combined_content_parts.append(f"{chunk_content}{page_marker}")
+                    else:
+                        combined_content_parts.append(chunk_content)
+                
+                combined_content = "\n\n".join(combined_content_parts)
+                
+                # Create enhanced metadata with page numbers
+                enhanced_metadata = doc_info['metadata'].copy()
+                enhanced_metadata['page_numbers'] = sorted(list(all_page_numbers))
+                enhanced_metadata['total_pages'] = len(all_page_numbers)
+                
+                # Create a single document with combined content
+                combined_doc = Document(
+                    page_content=combined_content,
+                    metadata=enhanced_metadata
+                )
+                
+                full_meta = doc_info['metadata']
+                
+                # Add page number information
+                page_info = ""
+                if 'page_numbers' in enhanced_metadata and enhanced_metadata['page_numbers']:
+                    page_info = f"\n- Available Pages: {', '.join(map(str, enhanced_metadata['page_numbers']))}"
                 
                 prompt = f"""Please provide a detailed summary of this response document with specific page citations and party position analysis.
 
@@ -596,10 +650,10 @@ RESPONSE DOCUMENT INFORMATION:
 - Filed by: {full_meta.get('filed_by', 'Unknown')}
 - Date: {full_meta.get('filing_date', 'Unknown')}
 - Source: {full_meta.get('filename', 'Unknown')}
-- Response to: {orig_filename}
+- Response to: {orig_filename}{page_info}
 
 DOCUMENT CONTENT:
-{doc.page_content}
+{combined_content}
 
 Please provide a comprehensive summary that includes:
 1. **Party Position Summary** (2-3 sentences with page citations)
@@ -619,7 +673,7 @@ Focus on the party's specific position and arguments with detailed citations."""
                 
                 try:
                     # Calculate dynamic max tokens
-                    max_tokens = self._get_dynamic_max_tokens(model, doc.page_content)
+                    max_tokens = self._get_dynamic_max_tokens(model, combined_content)
                     
                     summary_content, usage = make_openai_call(
                         prompt=prompt,
