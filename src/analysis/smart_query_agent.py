@@ -6,8 +6,8 @@ Handles query classification, document chain discovery, and multi-stage summariz
 import streamlit as st
 from typing import List, Dict, Any, Tuple, Optional
 from langchain.schema import Document
-from analysis.document_relationships import DocumentRelationshipAnalyzer
-from analysis.llm_utils import make_openai_call, calculate_cost
+from .document_relationships import DocumentRelationshipAnalyzer
+from .llm_utils import make_openai_call, calculate_cost
 import json
 from datetime import datetime
 
@@ -832,7 +832,7 @@ This should be a comprehensive, executive-level summary that captures all the ke
             st.write(f"**Model Used**: {model}")
         
         # Use the existing QA system for factual queries with dynamic context
-        from analysis.qa_system import ask_question
+        from .qa_system import ask_question
         
         # Calculate dynamic number of results based on model and question complexity
         num_results = self._get_dynamic_num_results(model, question, len(proceeding_docs))
@@ -894,7 +894,7 @@ This should be a comprehensive, executive-level summary that captures all the ke
             st.write(f"**Model Used**: {model}")
         
         # Use the existing QA system for comparative queries with dynamic context
-        from analysis.qa_system import ask_question
+        from .qa_system import ask_question
         
         # Calculate dynamic number of results (comparative queries need more results)
         num_results = self._get_dynamic_num_results(model, question, len(proceeding_docs))
@@ -957,7 +957,7 @@ This should be a comprehensive, executive-level summary that captures all the ke
             st.write(f"**Model Used**: {model}")
         
         # Use the existing QA system for general queries with dynamic context
-        from analysis.qa_system import ask_question
+        from .qa_system import ask_question
         
         # Calculate dynamic number of results
         num_results = self._get_dynamic_num_results(model, question, len(proceeding_docs))
