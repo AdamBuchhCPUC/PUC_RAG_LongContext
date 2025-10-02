@@ -92,7 +92,8 @@ Before classifying this question, let's consider:
 5. Do they need a comprehensive overview of the proceeding or specific factual information?
 6. **IMPORTANT**: If the question mentions specific document types (like "proposed decision", "motion", "application", "testimony"), focus on documents of that type. For example, if asking about a "proposed decision", consider documents with document_type containing "Decision" or "Proposed Decision". If there are multiple, focus on the most recent ones.
 7. **CLASSIFICATION HINT**: Questions like "What was the [document type] here?" or "What did the [document type] say?" are asking for a SUMMARY of that specific document type, not just factual information.
-8. Which specific documents from the available list are most likely to contain relevant information for this question?
+8. **PARTY SUMMARY HINT**: Questions like "What are [party name]'s concerns?" or "What did [party name] say?" are asking for a SUMMARY of all documents from that party, not just factual information.
+9. Which specific documents from the available list are most likely to contain relevant information for this question?
 
 Think about the user's intent within the specific CPUC proceeding context and identify the most relevant documents for analysis. Pay special attention to document type matching and whether they want a summary or just facts. Ignore orders extending statutory deadlines"""
 
@@ -128,7 +129,7 @@ STEPBACK ANALYSIS:
 ORIGINAL QUESTION: "{question}"
 
 CATEGORIES (within CPUC proceeding context):
-1. **summary** - User wants a comprehensive overview of the proceeding, including originating documents and party responses, OR wants a detailed summary of a specific document type (e.g., "What was the proposed decision here?")
+1. **summary** - User wants a comprehensive overview of the proceeding, including originating documents and party responses, OR wants a detailed summary of a specific document type (e.g., "What was the proposed decision here?"), OR wants a summary of all documents from a specific party (e.g., "What are [party name]'s concerns?")
 2. **factual** - User wants specific facts, dates, numbers, or precise information from the proceeding documents
 3. **comparative** - User wants to compare party positions, responses, or analyze differences between submissions
 4. **general** - General question about the proceeding that doesn't fit the above categories
