@@ -47,12 +47,29 @@ class SmartQueryAgent:
             return self._process_general_query(question, proceeding, model, classification)
     
     def _classify_query(self, question: str) -> Dict[str, Any]:
-        """Classify query type using LLM with stepback reasoning for clearer analysis"""
+        """Classify query type using LLM with stepback reasoning and document identification"""
         
-        # Step 1: Stepback reasoning for clearer analysis
+        # Get available documents for analysis
+        available_docs = []
+        for doc in self.documents:
+            source = doc.metadata.get('source', '')
+            if source in self.metadata:
+                doc_meta = self.metadata[source]
+                available_docs.append({
+                    'filename': source,
+                    'document_type': doc_meta.get('document_type', 'Unknown'),
+                    'filed_by': doc_meta.get('filed_by', 'Unknown'),
+                    'filing_date': doc_meta.get('filing_date', 'Unknown'),
+                    'description': doc_meta.get('description', '')[:200] + '...' if len(doc_meta.get('description', '')) > 200 else doc_meta.get('description', '')
+                })
+        
+        # Step 1: Stepback reasoning with document analysis
         stepback_prompt = f"""Let's step back and think about this question at a higher level within the context of a specific CPUC proceeding:
 
 QUESTION: "{question}"
+
+AVAILABLE DOCUMENTS:
+{self._format_documents_for_analysis(available_docs)}
 
 Before classifying this question, let's consider:
 1. What is the user fundamentally trying to understand or accomplish within this CPUC proceeding?
@@ -60,8 +77,9 @@ Before classifying this question, let's consider:
 3. What type of information or analysis would best serve their needs for understanding this proceeding's documents?
 4. Are they asking about originating documents (motions, proposed decisions) or responses to those documents?
 5. Do they need a comprehensive overview of the proceeding or specific factual information?
+6. Which specific documents from the available list are most likely to contain relevant information for this question?
 
-Think about the user's intent within the specific CPUC proceeding context and the most effective way to help them analyze the proceeding's documents."""
+Think about the user's intent within the specific CPUC proceeding context and identify the most relevant documents for analysis."""
 
         stepback_system = """You are an expert regulatory analyst who helps clarify user questions about CPUC proceedings. 
         Think step by step about what the user is really asking for, considering the regulatory context and their underlying needs."""
@@ -86,8 +104,8 @@ Think about the user's intent within the specific CPUC proceeding context and th
             with st.expander("🧠 **Stepback Analysis**", expanded=False):
                 st.write(stepback_response)
             
-            # Step 2: Classification based on stepback analysis
-            classification_prompt = f"""Based on this stepback analysis, classify the user's question within the context of a specific CPUC proceeding:
+            # Step 2: Classification with document identification
+            classification_prompt = f"""Based on this stepback analysis, classify the user's question and identify the most relevant documents:
 
 STEPBACK ANALYSIS:
 {stepback_response}
@@ -106,10 +124,12 @@ Please respond with ONLY a JSON object in this exact format:
     "complexity": "low|medium|high",
     "requires_document_chains": true|false,
     "processing_strategy": "multi_stage_summarization|direct_search|comparative_analysis|standard_qa",
+    "high_priority_documents": ["filename1", "filename2", "filename3"],
+    "search_priority": "high_priority_first|comprehensive_search",
     "reasoning": "Brief explanation based on the stepback analysis and proceeding context"
 }}
 
-Focus on the user's intent within the specific CPUC proceeding and what they're trying to accomplish with the proceeding's documents."""
+Focus on the user's intent within the specific CPUC proceeding and identify which documents are most likely to contain relevant information."""
 
             system_message = """You are an expert at analyzing user questions and classifying them for optimal processing in questions related to a corpus of CPUC documents. 
             Use the stepback analysis to make a more informed classification decision.
@@ -876,6 +896,22 @@ This should be a comprehensive, executive-level summary that captures all the ke
         
         return context_limits.get(model, {'max_context_tokens': 8000, 'reserved_tokens': 2000})
     
+    def _format_documents_for_analysis(self, documents: List[Dict]) -> str:
+        """Format documents for stepback analysis"""
+        if not documents:
+            return "No documents available"
+        
+        formatted = []
+        for i, doc in enumerate(documents, 1):
+            formatted.append(f"{i}. **{doc['filename']}** ({doc['document_type']})")
+            formatted.append(f"   - Filed by: {doc['filed_by']}")
+            formatted.append(f"   - Date: {doc['filing_date']}")
+            if doc['description']:
+                formatted.append(f"   - Description: {doc['description']}")
+            formatted.append("")
+        
+        return "\n".join(formatted)
+    
     def _simple_text_search(self, question: str, documents: List[Document], model: str, num_results: int) -> Dict[str, Any]:
         """Simple text search fallback when vector/BM25 search is not available"""
         st.info("🔍 **Using Simple Text Search**")
@@ -919,7 +955,7 @@ Please provide a comprehensive answer based on the context. If the context doesn
         try:
             response_content, usage = make_openai_call(
                 prompt=prompt,
-                system_message="You are an expert regulatory analyst. Provide accurate analysis based on the provided context.",
+                system_message="You are an expert California Public Utilities Commission (CPUC) regulatory analyst. Provide accurate analysis based on the provided context.",
                 model=model,
                 max_tokens=2000,
                 temperature=0.1,
@@ -963,6 +999,107 @@ Please provide a comprehensive answer based on the context. If the context doesn
                 'cost_breakdown': self.cost_tracker
             }
     
+    def _simple_text_search_with_priority(self, question: str, documents: List[Document], model: str, num_results: int, classification: Dict) -> Dict[str, Any]:
+        """Simple text search with priority document weighting"""
+        st.info("🔍 **Using Simple Text Search with Priority Documents**")
+        
+        # Get high priority documents from classification
+        high_priority_docs = classification.get('high_priority_documents', [])
+        
+        # Simple keyword matching with priority weighting
+        question_lower = question.lower()
+        question_words = set(question_lower.split())
+        
+        scored_docs = []
+        for doc in documents:
+            content_lower = doc.page_content.lower()
+            # Count word matches
+            matches = sum(1 for word in question_words if word in content_lower)
+            if matches > 0:
+                # Check if this is a high priority document
+                source = doc.metadata.get('source', '')
+                priority_boost = 2.0 if source in high_priority_docs else 1.0
+                
+                # Apply priority boost to score
+                final_score = matches * priority_boost
+                scored_docs.append((doc, final_score, source in high_priority_docs))
+        
+        # Sort by score and take top results
+        scored_docs.sort(key=lambda x: x[1], reverse=True)
+        relevant_docs = [doc for doc, score, is_priority in scored_docs[:num_results]]
+        
+        # Show priority document info
+        priority_found = [source for doc, score, is_priority in scored_docs[:num_results] if is_priority]
+        if priority_found:
+            st.info(f"🎯 **Priority Documents Found**: {', '.join(priority_found)}")
+        
+        if not relevant_docs:
+            return {
+                'answer': "No relevant documents found for your question.",
+                'sources': [],
+                'processing_stages': [{'stage': 'priority_search', 'description': 'Simple text search with priority weighting'}],
+                'cost_breakdown': self.cost_tracker
+            }
+        
+        # Generate answer using LLM
+        context = "\n\n".join([doc.page_content for doc in relevant_docs])
+        
+        prompt = f"""Based on the following context from CPUC regulatory documents, please answer the question.
+
+Context:
+{context}
+
+Question: {question}
+
+Please provide a comprehensive answer based on the context. If the context doesn't contain enough information to answer the question, please say so."""
+        
+        try:
+            response_content, usage = make_openai_call(
+                prompt=prompt,
+                system_message="You are an expert California Public Utilities Commission (CPUC) regulatory analyst. Provide accurate analysis based on the provided context.",
+                model=model,
+                max_tokens=2000,
+                temperature=0.1,
+                return_usage=True
+            )
+            
+            # Track costs
+            if usage:
+                input_tokens = usage.get('prompt_tokens', 0)
+                output_tokens = usage.get('completion_tokens', 0)
+                cost = calculate_cost(input_tokens, output_tokens, model)
+                self._track_cost('priority_search', cost)
+            
+            # Prepare sources
+            sources = []
+            for doc in relevant_docs:
+                source = doc.metadata.get('source', 'Unknown')
+                if source in self.metadata:
+                    doc_meta = self.metadata[source]
+                    sources.append({
+                        'source': source,
+                        'document_type': doc_meta.get('document_type', 'Unknown'),
+                        'filed_by': doc_meta.get('filed_by', 'Unknown'),
+                        'filing_date': doc_meta.get('filing_date', 'Unknown'),
+                        'relevance_score': 'Priority document' if source in high_priority_docs else 'Simple text match'
+                    })
+            
+            return {
+                'answer': response_content,
+                'sources': sources,
+                'processing_stages': [{'stage': 'priority_search', 'description': f'Simple text search with {len(priority_found)} priority documents', 'cost': self.cost_tracker['stage_costs'].get('priority_search', 0)}],
+                'cost_breakdown': self.cost_tracker
+            }
+            
+        except Exception as e:
+            st.error(f"❌ Error in priority text search: {e}")
+            return {
+                'answer': f"Error processing query: {e}",
+                'sources': [],
+                'processing_stages': [{'stage': 'priority_search', 'description': 'Error in priority search'}],
+                'cost_breakdown': self.cost_tracker
+            }
+    
     def _process_factual_query(self, question: str, proceeding: str, model: str, classification: Dict) -> Dict[str, Any]:
         """Process factual queries using vector/BM25 search with dynamic context management"""
         st.info("🔍 **Processing Factual Query with Vector/BM25 Search**")
@@ -999,10 +1136,10 @@ Please provide a comprehensive answer based on the context. If the context doesn
             
             if vector_store is None or bm25 is None:
                 st.warning("⚠️ Vector store or BM25 not available. Using simple text search.")
-                # Fallback to simple text search
-                return self._simple_text_search(question, proceeding_docs, model, num_results)
+                # Fallback to simple text search with priority documents
+                return self._simple_text_search_with_priority(question, proceeding_docs, model, num_results, classification)
             
-            # Use hybrid search for factual queries
+            # Use hybrid search for factual queries with priority documents
             answer, sources = ask_question(
                 question=question,
                 vector_store=vector_store,
@@ -1011,7 +1148,8 @@ Please provide a comprehensive answer based on the context. If the context doesn
                 metadata=self.metadata,
                 model=model,
                 search_type="Hybrid (Recommended)",
-                num_results=num_results
+                num_results=num_results,
+                high_priority_documents=classification.get('high_priority_documents', [])
             )
             
             # Track costs (simplified for now)
