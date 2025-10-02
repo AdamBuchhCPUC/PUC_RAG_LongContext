@@ -70,6 +70,12 @@ class SmartQueryAgent:
                     'description': doc_meta.get('description', '')[:200] + '...' if len(doc_meta.get('description', '')) > 200 else doc_meta.get('description', '')
                 })
         
+        # Auto-filter by document type if question mentions specific types
+        filtered_docs = self._filter_documents_by_question_type(question, available_docs)
+        if filtered_docs != available_docs:
+            st.info(f"🎯 **Auto-filtered to {len(filtered_docs)} relevant documents based on question type**")
+            available_docs = filtered_docs
+        
         # Step 1: Stepback reasoning with document analysis
         proceeding_context = f" (Proceeding: {proceeding})" if proceeding and proceeding != "All Proceedings" else ""
         stepback_prompt = f"""Let's step back and think about this question at a higher level within the context of a specific CPUC proceeding{proceeding_context}:
@@ -85,9 +91,10 @@ Before classifying this question, let's consider:
 3. What type of information or analysis would best serve their needs for understanding this proceeding's documents?
 4. Are they asking about originating documents (motions, proposed decisions) or responses to those documents?
 5. Do they need a comprehensive overview of the proceeding or specific factual information?
-6. Which specific documents from the available list are most likely to contain relevant information for this question?
+6. **IMPORTANT**: If the question mentions specific document types (like "proposed decision", "motion", "application", "testimony"), focus ONLY on documents of that type. For example, if asking about a "proposed decision", only consider documents with document_type containing "Decision" or "Proposed Decision".
+7. Which specific documents from the available list are most likely to contain relevant information for this question?
 
-Think about the user's intent within the specific CPUC proceeding context and identify the most relevant documents for analysis."""
+Think about the user's intent within the specific CPUC proceeding context and identify the most relevant documents for analysis. Pay special attention to document type matching."""
 
         stepback_system = """You are an expert regulatory analyst who helps clarify user questions about CPUC proceedings. 
         Think step by step about what the user is really asking for, considering the regulatory context and their underlying needs."""
@@ -909,16 +916,63 @@ This should be a comprehensive, executive-level summary that captures all the ke
         if not documents:
             return "No documents available"
         
+        # Group documents by type for better analysis
+        by_type = {}
+        for doc in documents:
+            doc_type = doc['document_type']
+            if doc_type not in by_type:
+                by_type[doc_type] = []
+            by_type[doc_type].append(doc)
+        
         formatted = []
-        for i, doc in enumerate(documents, 1):
-            formatted.append(f"{i}. **{doc['filename']}** ({doc['document_type']})")
-            formatted.append(f"   - Filed by: {doc['filed_by']}")
-            formatted.append(f"   - Date: {doc['filing_date']}")
-            if doc['description']:
-                formatted.append(f"   - Description: {doc['description']}")
+        for doc_type, docs in by_type.items():
+            formatted.append(f"**{doc_type.upper()} DOCUMENTS:**")
+            for i, doc in enumerate(docs, 1):
+                formatted.append(f"  {i}. **{doc['filename']}**")
+                formatted.append(f"     - Filed by: {doc['filed_by']}")
+                formatted.append(f"     - Date: {doc['filing_date']}")
+                if doc['description']:
+                    formatted.append(f"     - Description: {doc['description']}")
+                formatted.append("")
             formatted.append("")
         
         return "\n".join(formatted)
+    
+    def _filter_documents_by_question_type(self, question: str, documents: List[Dict]) -> List[Dict]:
+        """Auto-filter documents based on document types mentioned in the question"""
+        question_lower = question.lower()
+        
+        # Define document type mappings
+        type_mappings = {
+            'proposed decision': ['decision', 'proposed decision', 'proposed'],
+            'decision': ['decision', 'proposed decision', 'final decision'],
+            'motion': ['motion', 'petition'],
+            'application': ['application', 'petition'],
+            'testimony': ['testimony', 'expert testimony'],
+            'reply': ['reply', 'response', 'answer'],
+            'opening brief': ['opening brief', 'opening'],
+            'reply brief': ['reply brief', 'reply'],
+            'rebuttal': ['rebuttal', 'rebuttal testimony']
+        }
+        
+        # Find matching document types
+        matching_types = set()
+        for keyword, doc_types in type_mappings.items():
+            if keyword in question_lower:
+                matching_types.update(doc_types)
+        
+        if not matching_types:
+            return documents  # No filtering if no specific types mentioned
+        
+        # Filter documents
+        filtered_docs = []
+        for doc in documents:
+            doc_type_lower = doc['document_type'].lower()
+            if any(target_type in doc_type_lower for target_type in matching_types):
+                filtered_docs.append(doc)
+        
+        # If we found matches, return them; otherwise return original
+        return filtered_docs if filtered_docs else documents
     
     def _simple_text_search(self, question: str, documents: List[Document], model: str, num_results: int) -> Dict[str, Any]:
         """Simple text search fallback when vector/BM25 search is not available"""
