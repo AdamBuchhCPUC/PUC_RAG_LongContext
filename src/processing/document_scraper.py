@@ -121,7 +121,7 @@ class CPUCSeleniumScraper:
             import sys
             
             # Install Chrome driver using seleniumbase (following the example pattern)
-            @st.experimental_singleton
+            @st.cache_resource
             def install_chrome():
                 os.system('sbase install chromedriver')
                 os.system('ln -s /home/appuser/venv/lib/python3.7/site-packages/seleniumbase/drivers/chromedriver /home/appuser/venv/bin/chromedriver')
