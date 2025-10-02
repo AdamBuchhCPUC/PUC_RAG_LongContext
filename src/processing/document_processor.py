@@ -124,11 +124,6 @@ class DocumentProcessor:
                 doc_metadata['filename'] = pdf_path.name
                 doc_metadata['processed'] = True
                 
-                # Analyze document relationships
-                relationships = self._analyze_document_relationships(doc_metadata)
-                if relationships:
-                    doc_metadata['relationships'] = relationships
-                
                 # Create hierarchical chunks
                 chunks = self.hierarchical_chunker.create_hierarchical_chunks(text, doc_metadata)
                 documents.extend(chunks)
@@ -142,6 +137,16 @@ class DocumentProcessor:
             except Exception as e:
                 st.error(f"❌ Error processing {pdf_path.name}: {e}")
                 continue
+        
+        # Analyze document relationships for all documents in one LLM call per proceeding
+        if metadata:
+            st.write("🔍 Analyzing document relationships...")
+            all_relationships = self._analyze_all_document_relationships(metadata)
+            
+            # Add relationships to each document's metadata
+            for filename, doc_metadata in metadata.items():
+                if filename in all_relationships:
+                    doc_metadata['relationships'] = all_relationships[filename]
         
         if not documents:
             st.error("❌ No documents were processed successfully")
@@ -297,97 +302,89 @@ class DocumentProcessor:
             else:
                 st.warning("⚠️ No files could be cleared - they may be in use")
                 return False
+        except Exception as e:
+            st.error(f"Error clearing processed data: {e}")
+            return False
     
-    def _analyze_document_relationships(self, doc_metadata: Dict[str, Any]) -> Dict[str, str]:
-        """Analyze relationships for a single document during processing"""
-        relationships = {}
-        
+    def _analyze_all_document_relationships(self, all_metadata: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, str]]:
+        """Analyze document relationships for all documents in one LLM call per proceeding"""
         try:
-            # Check if this document is a response to another document
-            doc_type = doc_metadata.get('document_type', '').lower()
-            description = doc_metadata.get('description', '').lower()
+            from langchain_openai import ChatOpenAI
+            import json
             
-            # Look for response indicators
-            response_indicators = [
-                'response', 'reply', 'comment', 'protest', 'opposition', 'support',
-                'objection', 'agreement', 'disagreement', 'concern', 'recommendation'
-            ]
+            # Group documents by proceeding
+            proceedings = {}
+            for filename, doc_metadata in all_metadata.items():
+                proceeding = doc_metadata.get('proceeding', 'unknown')
+                if proceeding not in proceedings:
+                    proceedings[proceeding] = []
+                proceedings[proceeding].append((filename, doc_metadata))
             
-            is_response = any(indicator in description for indicator in response_indicators)
-            if is_response:
-                # Try to identify what document this is responding to
-                target_doc = self._identify_response_target(doc_metadata, description)
-                if target_doc:
-                    relationships['response_type'] = f"Response to: {target_doc}"
-                else:
-                    relationships['response_type'] = 'Appears to be a response document'
+            all_relationships = {}
             
-            # Check if this is an originating document
-            originating_types = ['application', 'motion', 'petition', 'proposed decision', 'decision']
-            is_originating = any(orig_type in doc_type for orig_type in originating_types)
-            if is_originating:
-                relationships['document_role'] = 'Originating document'
+            # Analyze each proceeding separately
+            for proceeding, proceeding_docs in proceedings.items():
+                if proceeding == 'unknown':
+                    continue
+                    
+                st.write(f"🔍 Analyzing relationships for proceeding {proceeding} ({len(proceeding_docs)} documents)")
+                
+                # Create a formatted list of all documents for the LLM to analyze
+                documents_list = []
+                for filename, doc_metadata in proceeding_docs:
+                    doc_info = f"- {filename} ({doc_metadata.get('document_type', 'Unknown')}) - Filed: {doc_metadata.get('filed_date', 'Unknown')} - {doc_metadata.get('description', 'No description')[:200]}"
+                    documents_list.append(doc_info)
+                
+                documents_text = "\n".join(documents_list)
+                
+                prompt = f"""
+You are analyzing a CPUC proceeding to identify document relationships. For each document, determine:
+
+1. Document role: "originating", "response", "decision", or "other"
+2. Response type: If it's a response, what type (e.g., "comment", "protest", "reply")
+3. Target document: If it's a response, which specific document is it responding to (use the filename)
+4. Filing timing: The filing date
+
+PROCEEDING: {proceeding}
+DOCUMENTS:
+{documents_text}
+
+Return a JSON object where each key is a filename and the value is a dictionary with:
+- "document_role": one of "originating", "response", "decision", "other"
+- "response_type": if applicable (e.g., "comment", "protest", "reply")
+- "responding_to": if it's a response, the filename of the target document
+- "filing_timing": the filing date
+
+Example format:
+{{
+  "document1.pdf": {{
+    "document_role": "originating",
+    "filing_timing": "2025-01-15"
+  }},
+  "document2.pdf": {{
+    "document_role": "response",
+    "response_type": "comment",
+    "responding_to": "document1.pdf",
+    "filing_timing": "2025-01-20"
+  }}
+}}
+
+JSON:"""
+
+                llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+                response = llm.invoke(prompt)
+                
+                # Parse the JSON response
+                try:
+                    proceeding_relationships = json.loads(response.content.strip())
+                    all_relationships.update(proceeding_relationships)
+                except json.JSONDecodeError:
+                    st.warning(f"⚠️ Could not parse relationships for proceeding {proceeding}")
+                    continue
             
-            
-            # Check for chronological relationships
-            filing_date = doc_metadata.get('filing_date', '')
-            if filing_date:
-                relationships['filing_timing'] = f"Filed on {filing_date}"
+            return all_relationships
             
         except Exception as e:
-            # If relationship analysis fails, continue without it
-            pass
-        
-        return relationships
+            st.error(f"Error analyzing document relationships: {e}")
+            return {}
     
-    def _identify_response_target(self, doc_metadata: Dict[str, Any], description: str) -> str:
-        """Identify which document this response is targeting"""
-        try:
-            import re
-            
-            # Look for specific document references in the description
-            # Common patterns: "response to [document type]", "reply to [document type]", etc.
-            
-            # Check for specific document type references
-            target_patterns = [
-                r'response to (?:the )?([^,\.]+)',
-                r'reply to (?:the )?([^,\.]+)',
-                r'comment on (?:the )?([^,\.]+)',
-                r'protest of (?:the )?([^,\.]+)',
-                r'opposition to (?:the )?([^,\.]+)',
-                r'objection to (?:the )?([^,\.]+)',
-                r'regarding (?:the )?([^,\.]+)',
-                r'concerning (?:the )?([^,\.]+)'
-            ]
-            
-            for pattern in target_patterns:
-                match = re.search(pattern, description, re.IGNORECASE)
-                if match:
-                    target = match.group(1).strip()
-                    # Clean up the target description
-                    target = re.sub(r'\s+', ' ', target)  # Remove extra spaces
-                    target = target[:100]  # Limit length
-                    return target
-            
-            # Look for proceeding-specific references
-            proceeding = doc_metadata.get('proceeding', '')
-            if proceeding and proceeding in description:
-                return f"proceeding {proceeding}"
-            
-            # Look for date-based references
-            date_patterns = [
-                r'filed on ([^,\.]+)',
-                r'dated ([^,\.]+)',
-                r'from ([^,\.]+)'
-            ]
-            
-            for pattern in date_patterns:
-                match = re.search(pattern, description, re.IGNORECASE)
-                if match:
-                    target = match.group(1).strip()
-                    return f"document {target}"
-            
-            return None
-            
-        except Exception:
-            return None
