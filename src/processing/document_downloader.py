@@ -106,12 +106,24 @@ def download_pdfs_to_documents_folder(documents_df, documents_folder="./document
     
     downloaded_count = 0
     failed_count = 0
+    failed_downloads = []  # Track failed downloads for detailed reporting
     
-    for idx in selected_indices:
+    # Create progress tracking
+    total_downloads = len(selected_indices)
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for i, idx in enumerate(selected_indices):
         if idx >= len(documents_df):
+            st.warning(f"⚠️ Index {idx} out of range (max: {len(documents_df)-1})")
+            failed_count += 1
             continue
             
         row = documents_df.iloc[idx]
+        
+        # Update progress
+        progress = (i + 1) / total_downloads
+        progress_bar.progress(progress)
         
         try:
             # Create filename
@@ -132,20 +144,96 @@ def download_pdfs_to_documents_folder(documents_df, documents_folder="./document
             # Add .pdf extension
             filename = f"{clean_filename}.pdf"
             
+            # Update status
+            status_text.text(f"Downloading {i+1}/{total_downloads}: {doc_type} from {submitter}")
+            
             # Download PDF
             pdf_url = row.get('pdf_url', '')
             if not pdf_url:
-                st.warning(f"⚠️ No PDF URL for row {idx}")
+                error_msg = f"No PDF URL available"
+                st.warning(f"⚠️ Row {idx} ({doc_type}): {error_msg}")
+                failed_downloads.append({
+                    'index': idx,
+                    'document_type': doc_type,
+                    'submitter': submitter,
+                    'error': error_msg
+                })
                 failed_count += 1
                 continue
             
-            response = requests.get(pdf_url, timeout=30)
-            response.raise_for_status()
+            # Check if file already exists
+            pdf_path = Path(documents_folder) / filename
+            if pdf_path.exists():
+                st.info(f"⏭️ Skipping {filename} (already exists)")
+                downloaded_count += 1
+                continue
+            
+            # Download PDF with better error handling
+            try:
+                response = requests.get(pdf_url, timeout=30, stream=True)
+                response.raise_for_status()
+                
+                # Check content type
+                content_type = response.headers.get('content-type', '').lower()
+                if 'pdf' not in content_type and 'application/octet-stream' not in content_type:
+                    st.warning(f"⚠️ Row {idx}: Unexpected content type: {content_type}")
+                
+                # Check file size
+                content_length = response.headers.get('content-length')
+                if content_length and int(content_length) < 1000:  # Less than 1KB is suspicious
+                    st.warning(f"⚠️ Row {idx}: Small file size ({content_length} bytes) - may be corrupted")
+                
+            except requests.exceptions.Timeout:
+                error_msg = "Request timeout (30s)"
+                st.error(f"❌ Row {idx} ({doc_type}): {error_msg}")
+                failed_downloads.append({
+                    'index': idx,
+                    'document_type': doc_type,
+                    'submitter': submitter,
+                    'error': error_msg
+                })
+                failed_count += 1
+                continue
+            except requests.exceptions.ConnectionError:
+                error_msg = "Connection error"
+                st.error(f"❌ Row {idx} ({doc_type}): {error_msg}")
+                failed_downloads.append({
+                    'index': idx,
+                    'document_type': doc_type,
+                    'submitter': submitter,
+                    'error': error_msg
+                })
+                failed_count += 1
+                continue
+            except requests.exceptions.HTTPError as e:
+                error_msg = f"HTTP error {e.response.status_code}: {e.response.reason}"
+                st.error(f"❌ Row {idx} ({doc_type}): {error_msg}")
+                failed_downloads.append({
+                    'index': idx,
+                    'document_type': doc_type,
+                    'submitter': submitter,
+                    'error': error_msg
+                })
+                failed_count += 1
+                continue
             
             # Save PDF
-            pdf_path = Path(documents_folder) / filename
             with open(pdf_path, 'wb') as f:
-                f.write(response.content)
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            
+            # Verify file was saved and has content
+            if not pdf_path.exists() or pdf_path.stat().st_size == 0:
+                error_msg = "File not saved or empty"
+                st.error(f"❌ Row {idx} ({doc_type}): {error_msg}")
+                failed_downloads.append({
+                    'index': idx,
+                    'document_type': doc_type,
+                    'submitter': submitter,
+                    'error': error_msg
+                })
+                failed_count += 1
+                continue
             
             # Create metadata
             metadata = {
@@ -156,7 +244,8 @@ def download_pdfs_to_documents_folder(documents_df, documents_folder="./document
                 'submitter_acronym': submitter_acronym,
                 'pdf_url': pdf_url,
                 'download_date': datetime.now().isoformat(),
-                'processed': False
+                'processed': False,
+                'file_size': pdf_path.stat().st_size
             }
             
             # Save metadata
@@ -165,14 +254,34 @@ def download_pdfs_to_documents_folder(documents_df, documents_folder="./document
                 json.dump(metadata, f, indent=2)
             
             downloaded_count += 1
-            st.success(f"✅ Downloaded: {filename}")
+            st.success(f"✅ Downloaded: {filename} ({pdf_path.stat().st_size:,} bytes)")
             
         except Exception as e:
-            st.error(f"❌ Failed to download row {idx}: {e}")
+            error_msg = f"Unexpected error: {str(e)}"
+            st.error(f"❌ Row {idx} ({doc_type}): {error_msg}")
+            failed_downloads.append({
+                'index': idx,
+                'document_type': doc_type,
+                'submitter': submitter,
+                'error': error_msg
+            })
             failed_count += 1
             continue
     
-    st.write(f"📊 Download Summary: {downloaded_count} successful, {failed_count} failed")
+    # Clear progress indicators
+    progress_bar.empty()
+    status_text.empty()
+    
+    # Display detailed summary
+    st.write(f"📊 **Download Summary**: {downloaded_count} successful, {failed_count} failed")
+    
+    if failed_downloads:
+        with st.expander("❌ **Failed Downloads Details**", expanded=False):
+            for failed in failed_downloads:
+                st.write(f"**Row {failed['index']}**: {failed['document_type']} from {failed['submitter']}")
+                st.write(f"  Error: {failed['error']}")
+                st.write("---")
+    
     return downloaded_count, failed_count
 
 
