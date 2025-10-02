@@ -4,9 +4,22 @@ Handles document downloading functionality with sophisticated proceeding-based d
 """
 
 import streamlit as st
+import re
 from pathlib import Path
 from processing.document_downloader import load_documents_metadata, check_if_processing_needed
 from processing.document_scraper import DocumentCache, CPUCSeleniumScraper
+
+
+def clean_proceeding_number(proceeding_number: str) -> str:
+    """Clean proceeding number by removing punctuation, spaces, and other characters"""
+    if not proceeding_number:
+        return proceeding_number
+    
+    # Remove all punctuation, spaces, dashes, and other non-alphanumeric characters
+    # Keep only letters and numbers
+    cleaned = re.sub(r'[^a-zA-Z0-9]', '', proceeding_number)
+    
+    return cleaned
 
 
 def create_download_tab():
@@ -62,7 +75,7 @@ def create_download_tab():
         proceeding_number = st.text_input(
             "Enter CPUC Proceeding Number:",
             placeholder="R2008020",
-            help="Enter proceeding number (e.g., R2008020, A2106028)"
+            help="Enter proceeding number (e.g., R2008020, A2106028). Punctuation and spaces will be automatically removed."
         )
     
     with col2:
@@ -128,14 +141,21 @@ def create_download_tab():
     # Download button
     if st.button("🚀 Download Documents", type="primary"):
         if proceeding_number:
+            # Clean the proceeding number before using it
+            cleaned_proceeding_number = clean_proceeding_number(proceeding_number)
+            
+            # Show what was cleaned
+            if cleaned_proceeding_number != proceeding_number:
+                st.info(f"🧹 Cleaned proceeding number: '{proceeding_number}' → '{cleaned_proceeding_number}'")
+            
             try:
                 # Initialize scraper
                 scraper = CPUCSeleniumScraper(headless=headless)
                 
                 # Show progress
-                with st.spinner(f"🔍 Scraping proceeding {proceeding_number}..."):
+                with st.spinner(f"🔍 Scraping proceeding {cleaned_proceeding_number}..."):
                     downloaded_count = scraper.scrape_proceeding(
-                        proceeding_number=proceeding_number,
+                        proceeding_number=cleaned_proceeding_number,
                         time_filter=time_filter,
                         keyword_filter=keyword_filter,
                         max_pages=max_pages
