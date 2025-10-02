@@ -7,6 +7,8 @@ import streamlit as st
 import sqlite3
 import hashlib
 import json
+import pickle
+import numpy as np
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
 from langchain.schema import Document
@@ -56,7 +58,9 @@ class ContentHashCache:
             conn.close()
             
             if result:
-                embedding, metadata_json = result
+                embedding_blob, metadata_json = result
+                # Deserialize the embedding from pickle
+                embedding = pickle.loads(embedding_blob)
                 metadata = json.loads(metadata_json) if metadata_json else {}
                 return True, embedding, metadata
             else:
@@ -71,13 +75,16 @@ class ContentHashCache:
         try:
             content_hash = self._hash_content(content)
             
+            # Serialize the embedding to bytes for SQLite storage
+            embedding_blob = pickle.dumps(embedding)
+            
             conn = sqlite3.connect(self.cache_db_path)
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT OR REPLACE INTO embedding_cache 
                 (content_hash, embedding, metadata) 
                 VALUES (?, ?, ?)
-            ''', (content_hash, embedding, json.dumps(metadata)))
+            ''', (content_hash, embedding_blob, json.dumps(metadata)))
             conn.commit()
             conn.close()
             
