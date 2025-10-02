@@ -33,7 +33,7 @@ class SmartQueryAgent:
         st.info(f"🤖 **Smart Agent Processing**: {question[:100]}...")
         
         # Step 1: Classify the query
-        classification = self._classify_query(question)
+        classification = self._classify_query(question, proceeding)
         st.write(f"📋 **Query Type**: {classification['query_type']}")
         
         # Step 2: Route to appropriate processing
@@ -46,15 +46,22 @@ class SmartQueryAgent:
         else:
             return self._process_general_query(question, proceeding, model, classification)
     
-    def _classify_query(self, question: str) -> Dict[str, Any]:
+    def _classify_query(self, question: str, proceeding: str = None) -> Dict[str, Any]:
         """Classify query type using LLM with stepback reasoning and document identification"""
         
-        # Get available documents for analysis
+        # Get available documents for analysis (filtered by proceeding if specified)
         available_docs = []
         for doc in self.documents:
             source = doc.metadata.get('source', '')
             if source in self.metadata:
                 doc_meta = self.metadata[source]
+                
+                # Filter by proceeding if specified
+                if proceeding and proceeding != "All Proceedings":
+                    doc_proceeding = doc_meta.get('proceeding', '')
+                    if doc_proceeding != proceeding:
+                        continue
+                
                 available_docs.append({
                     'filename': source,
                     'document_type': doc_meta.get('document_type', 'Unknown'),
@@ -64,11 +71,12 @@ class SmartQueryAgent:
                 })
         
         # Step 1: Stepback reasoning with document analysis
-        stepback_prompt = f"""Let's step back and think about this question at a higher level within the context of a specific CPUC proceeding:
+        proceeding_context = f" (Proceeding: {proceeding})" if proceeding and proceeding != "All Proceedings" else ""
+        stepback_prompt = f"""Let's step back and think about this question at a higher level within the context of a specific CPUC proceeding{proceeding_context}:
 
 QUESTION: "{question}"
 
-AVAILABLE DOCUMENTS:
+AVAILABLE DOCUMENTS IN THIS PROCEEDING:
 {self._format_documents_for_analysis(available_docs)}
 
 Before classifying this question, let's consider:
