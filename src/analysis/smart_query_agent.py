@@ -70,11 +70,6 @@ class SmartQueryAgent:
                     'description': doc_meta.get('description', '')[:200] + '...' if len(doc_meta.get('description', '')) > 200 else doc_meta.get('description', '')
                 })
         
-        # Auto-filter by document type if question mentions specific types
-        filtered_docs = self._filter_documents_by_question_type(question, available_docs)
-        if filtered_docs != available_docs:
-            st.info(f"🎯 **Auto-filtered to {len(filtered_docs)} relevant documents based on question type**")
-            available_docs = filtered_docs
         
         # Step 1: Stepback reasoning with document analysis
         proceeding_context = f" (Proceeding: {proceeding})" if proceeding and proceeding != "All Proceedings" else ""
@@ -937,42 +932,6 @@ This should be a comprehensive, executive-level summary that captures all the ke
             formatted.append("")
         
         return "\n".join(formatted)
-    
-    def _filter_documents_by_question_type(self, question: str, documents: List[Dict]) -> List[Dict]:
-        """Auto-filter documents based on document types mentioned in the question"""
-        question_lower = question.lower()
-        
-        # Define document type mappings
-        type_mappings = {
-            'proposed decision': ['decision', 'proposed decision', 'proposed'],
-            'decision': ['decision', 'proposed decision', 'final decision'],
-            'motion': ['motion', 'petition'],
-            'application': ['application', 'petition'],
-            'testimony': ['testimony', 'expert testimony'],
-            'reply': ['reply', 'response', 'answer'],
-            'opening brief': ['opening brief', 'opening'],
-            'reply brief': ['reply brief', 'reply'],
-            'rebuttal': ['rebuttal', 'rebuttal testimony']
-        }
-        
-        # Find matching document types
-        matching_types = set()
-        for keyword, doc_types in type_mappings.items():
-            if keyword in question_lower:
-                matching_types.update(doc_types)
-        
-        if not matching_types:
-            return documents  # No filtering if no specific types mentioned
-        
-        # Filter documents
-        filtered_docs = []
-        for doc in documents:
-            doc_type_lower = doc['document_type'].lower()
-            if any(target_type in doc_type_lower for target_type in matching_types):
-                filtered_docs.append(doc)
-        
-        # If we found matches, return them; otherwise return original
-        return filtered_docs if filtered_docs else documents
     
     def _simple_text_search(self, question: str, documents: List[Document], model: str, num_results: int) -> Dict[str, Any]:
         """Simple text search fallback when vector/BM25 search is not available"""
