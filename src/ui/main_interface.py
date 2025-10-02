@@ -12,6 +12,7 @@ from typing import Dict, Any
 from ui.tabs.download_tab import create_download_tab
 from ui.tabs.processing_tab import create_processing_tab
 from ui.tabs.qa_tab import create_qa_tab
+from ui.tabs.persistence_tab import create_persistence_tab
 from ui.sidebar import create_sidebar
 
 
@@ -97,10 +98,11 @@ def main():
     st.session_state.sidebar_config = create_sidebar()
     
     # Create tabs for different functionalities
-    tab1, tab2, tab3 = st.tabs([
+    tab1, tab2, tab3, tab4 = st.tabs([
         "📥 Download Documents", 
         "🔄 Process Documents", 
-        "🔍 Ask Questions"
+        "🔍 Ask Questions",
+        "💾 Data Persistence"
     ])
     
     with tab1:
@@ -111,6 +113,9 @@ def main():
     
     with tab3:
         create_qa_tab()
+    
+    with tab4:
+        create_persistence_tab()
 
 
 if __name__ == "__main__":

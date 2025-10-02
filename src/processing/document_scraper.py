@@ -567,9 +567,21 @@ class CPUCSeleniumScraper:
                 pdf_url = None
                 if doc.get('document_url'):
                     try:
-                        pdf_links = self.scrape_document_detail_page(doc['document_url'])
-                        if pdf_links and len(pdf_links) > 0 and 'error' not in pdf_links[0]:
-                            pdf_url = pdf_links[0].get('PDF URL', '')
+                        # Add Chrome crash recovery
+                        try:
+                            pdf_links = self.scrape_document_detail_page(doc['document_url'])
+                            if pdf_links and len(pdf_links) > 0 and 'error' not in pdf_links[0]:
+                                pdf_url = pdf_links[0].get('PDF URL', '')
+                        except Exception as e:
+                            st.warning(f"⚠️ Chrome crashed while scraping {doc.get('document_type', 'Unknown')}: {e}")
+                            # Try to restart Chrome driver
+                            try:
+                                self.cleanup()
+                                self._setup_driver()
+                                st.info("🔄 Chrome driver restarted")
+                            except:
+                                st.error("❌ Could not restart Chrome driver")
+                                continue
                     except:
                         pass
                 
@@ -650,16 +662,16 @@ class CPUCSeleniumScraper:
         
         try:
             # Set a shorter timeout for individual page loads
-            self.driver.set_page_load_timeout(15)  # 15 second timeout
+            self.driver.set_page_load_timeout(10)  # Reduced timeout
             self.driver.get(detail_url)
             
             # Wait for page to load with shorter timeout
-            WebDriverWait(self.driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+            WebDriverWait(self.driver, 5).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
         except TimeoutException:
             if retry_count < max_retries:
                 st.warning(f"⚠️ Timeout loading detail page (attempt {retry_count + 1}/{max_retries + 1})")
                 import time
-                time.sleep(2)  # Wait before retry
+                time.sleep(1)  # Shorter wait
                 return self.scrape_document_detail_page(detail_url, retry_count + 1)
             else:
                 st.warning(f"⚠️ Timeout loading detail page after {max_retries + 1} attempts")
@@ -682,13 +694,13 @@ class CPUCSeleniumScraper:
         except Exception as e:
             st.warning(f"Error extracting title: {e}")
         
-        # Look for PDF links with error handling
+        # Look for PDF links with enhanced error handling
         pdf_links = []
         seen_urls = set()
         
         try:
             # Use shorter wait time for finding elements
-            result_table = WebDriverWait(self.driver, 5).until(
+            result_table = WebDriverWait(self.driver, 3).until(
                 EC.presence_of_element_located((By.ID, "ResultTable"))
             )
             rows = result_table.find_elements(By.TAG_NAME, "tr")
@@ -733,6 +745,8 @@ class CPUCSeleniumScraper:
                     continue
         except Exception as e:
             st.warning(f"Error extracting PDF links: {e}")
+            # Return empty list instead of crashing
+            return []
         
         return pdf_links
     
