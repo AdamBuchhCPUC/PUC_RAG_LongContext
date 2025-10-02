@@ -194,12 +194,14 @@ Focus on the user's intent within the specific CPUC proceeding and what they're 
                     st.write(f"  - {proc}")
         
         # Find originating documents (motions, proposed decisions, scoping rulings, etc.)
-        originating_documents = []
+        # Group chunks by source document to avoid duplicates
+        source_documents = {}  # filename -> {metadata, chunks}
         originating_types = [
             'motion', 'proposed decision', 'scoping ruling', 'scoping memo', 
             'decision', 'ruling', 'order', 'application', 'petition'
         ]
         
+        # Group chunks by source document
         for doc in proceeding_docs:
             source = doc.metadata.get('source', '')
             if source in self.metadata:
@@ -207,13 +209,36 @@ Focus on the user's intent within the specific CPUC proceeding and what they're 
                 doc_type = doc_meta.get('document_type', '').lower()
                 
                 if any(orig_type in doc_type for orig_type in originating_types):
-                    originating_documents.append({
-                        'document': doc,
-                        'metadata': doc_meta,
-                        'type': doc_type,
-                        'filed_by': doc_meta.get('filed_by', 'Unknown'),
-                        'filing_date': doc_meta.get('filing_date', 'Unknown')
-                    })
+                    if source not in source_documents:
+                        source_documents[source] = {
+                            'metadata': doc_meta,
+                            'chunks': [],
+                            'type': doc_type,
+                            'filed_by': doc_meta.get('filed_by', 'Unknown'),
+                            'filing_date': doc_meta.get('filing_date', 'Unknown')
+                        }
+                    source_documents[source]['chunks'].append(doc)
+        
+        # Convert to originating documents list
+        originating_documents = []
+        for source, doc_info in source_documents.items():
+            # Combine all chunks for this document
+            combined_content = "\n\n".join([chunk.page_content for chunk in doc_info['chunks']])
+            
+            # Create a single document with combined content
+            combined_doc = Document(
+                page_content=combined_content,
+                metadata=doc_info['metadata']
+            )
+            
+            originating_documents.append({
+                'document': combined_doc,
+                'metadata': doc_info['metadata'],
+                'type': doc_info['type'],
+                'filed_by': doc_info['filed_by'],
+                'filing_date': doc_info['filing_date'],
+                'chunks': doc_info['chunks']  # Keep reference to original chunks for page numbers
+            })
         
         # Find response chains for each originating document
         response_chains = {}
