@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 import pandas as pd
 from datetime import datetime
+from collections import defaultdict
 
 
 def create_acronym(name: str) -> str:
@@ -46,8 +47,16 @@ def create_acronym(name: str) -> str:
     return ''.join(acronym_letters)
 
 
-def get_document_suffix(document_type: str, description: str, document_index: int) -> str:
+def get_document_suffix(document_type: str, description: str, document_index: int, total_documents: int = 1) -> str:
     """Generate appropriate suffix for multiple documents from same docket entry"""
+    
+    # If only one document, no suffix needed
+    if total_documents == 1:
+        return ""
+    
+    # Check if it's a certificate of service - these should not get suffixes
+    if 'certificate of service' in description.lower() or 'cert of service' in description.lower():
+        return ""
     
     # Check if it's an appendix
     if 'appendix' in description.lower() or 'appendices' in description.lower():
@@ -58,7 +67,7 @@ def get_document_suffix(document_type: str, description: str, document_index: in
         else:
             return f"Appendix{document_index}"
     
-    # For other documents, use lettering (docA, docB, docC, etc.)
+    # For other documents with multiple files, use lettering (docA, docB, docC, etc.)
     if document_index == 0:
         return "docA"
     elif document_index == 1:
@@ -92,6 +101,29 @@ def create_document_id(metadata: Dict[str, Any]) -> str:
         return None
 
 
+def group_documents_by_docket_entry(documents_df, selected_indices):
+    """Group documents by docket entry (proceeding + filing date + party)"""
+    docket_groups = defaultdict(list)
+    
+    for idx in selected_indices:
+        if idx >= len(documents_df):
+            continue
+            
+        row = documents_df.iloc[idx]
+        
+        # Create docket key from proceeding, filing date, and party
+        proceeding = row.get('proceeding', 'Unknown')
+        filing_date = row.get('filing_date', 'Unknown')
+        submitter = row.get('submitter', 'Unknown')
+        
+        # Create docket key
+        docket_key = f"{proceeding}_{filing_date}_{submitter}"
+        
+        docket_groups[docket_key].append((idx, row))
+    
+    return dict(docket_groups)
+
+
 def download_pdfs_to_documents_folder(documents_df, documents_folder="./documents", selected_indices=None):
     """Download selected PDFs to the documents folder with metadata preservation"""
     # Create documents folder if it doesn't exist
@@ -104,6 +136,9 @@ def download_pdfs_to_documents_folder(documents_df, documents_folder="./document
     if selected_indices is None:
         selected_indices = list(range(len(documents_df)))
     
+    # Group documents by docket entry
+    docket_groups = group_documents_by_docket_entry(documents_df, selected_indices)
+    
     downloaded_count = 0
     failed_count = 0
     failed_downloads = []  # Track failed downloads for detailed reporting
@@ -113,78 +148,188 @@ def download_pdfs_to_documents_folder(documents_df, documents_folder="./document
     progress_bar = st.progress(0)
     status_text = st.empty()
     
-    for i, idx in enumerate(selected_indices):
-        if idx >= len(documents_df):
-            st.warning(f"⚠️ Index {idx} out of range (max: {len(documents_df)-1})")
-            failed_count += 1
-            continue
-            
-        row = documents_df.iloc[idx]
+    processed_count = 0
+    
+    # Process each docket group
+    for docket_key, documents in docket_groups.items():
+        st.write(f"📁 Processing docket entry: {docket_key}")
         
-        # Update progress
-        progress = (i + 1) / total_downloads
-        progress_bar.progress(progress)
+        # Sort documents within the docket entry
+        # Put main documents first, then appendices, then others
+        def sort_key(doc_tuple):
+            idx, row = doc_tuple
+            doc_type = str(row.get('document_type', '')).lower()
+            description = str(row.get('description', '')).lower()
+            
+            # Main documents first
+            if 'appendix' not in description:
+                return (0, idx)
+            # Appendices second
+            elif 'appendix' in description:
+                return (1, idx)
+            # Others last
+            else:
+                return (2, idx)
         
-        try:
-            # Create filename
-            proceeding = row.get('proceeding', 'Unknown')
-            doc_type = row.get('document_type', 'Unknown')
-            submitter = row.get('submitter', 'Unknown')
-            
-            # Create acronym for submitter
-            submitter_acronym = create_acronym(submitter)
-            
-            # Create base filename
-            base_filename = f"{proceeding}_{doc_type}_{submitter_acronym}"
-            
-            # Clean filename
-            clean_filename = re.sub(r'[^\w\-_]', '_', base_filename)
-            clean_filename = re.sub(r'_+', '_', clean_filename)  # Remove multiple underscores
-            
-            # Add .pdf extension
-            filename = f"{clean_filename}.pdf"
-            
-            # Update status
-            status_text.text(f"Downloading {i+1}/{total_downloads}: {doc_type} from {submitter}")
-            
-            # Download PDF
-            pdf_url = row.get('pdf_url', '')
-            if not pdf_url:
-                error_msg = f"No PDF URL available"
-                st.warning(f"⚠️ Row {idx} ({doc_type}): {error_msg}")
-                failed_downloads.append({
-                    'index': idx,
-                    'document_type': doc_type,
-                    'submitter': submitter,
-                    'error': error_msg
-                })
-                failed_count += 1
-                continue
-            
-            # Check if file already exists
-            pdf_path = Path(documents_folder) / filename
-            if pdf_path.exists():
-                st.info(f"⏭️ Skipping {filename} (already exists)")
-                downloaded_count += 1
-                continue
-            
-            # Download PDF with better error handling
+        documents.sort(key=sort_key)
+        
+        # Download each document in the group
+        for doc_index, (idx, row) in enumerate(documents):
             try:
-                response = requests.get(pdf_url, timeout=30, stream=True)
-                response.raise_for_status()
+                # Update progress
+                progress = (processed_count + 1) / total_downloads
+                progress_bar.progress(progress)
                 
-                # Check content type
-                content_type = response.headers.get('content-type', '').lower()
-                if 'pdf' not in content_type and 'application/octet-stream' not in content_type:
-                    st.warning(f"⚠️ Row {idx}: Unexpected content type: {content_type}")
+                # Create filename with proper suffix logic
+                proceeding = row.get('proceeding', 'Unknown')
+                doc_type = row.get('document_type', 'Unknown')
+                submitter = row.get('submitter', 'Unknown')
+                description = row.get('description', '')
                 
-                # Check file size
-                content_length = response.headers.get('content-length')
-                if content_length and int(content_length) < 1000:  # Less than 1KB is suspicious
-                    st.warning(f"⚠️ Row {idx}: Small file size ({content_length} bytes) - may be corrupted")
+                # Create acronym for submitter
+                submitter_acronym = create_acronym(submitter)
                 
-            except requests.exceptions.Timeout:
-                error_msg = "Request timeout (30s)"
+                # Get document suffix based on group size and document type
+                total_docs_in_group = len(documents)
+                suffix = get_document_suffix(doc_type, description, doc_index, total_docs_in_group)
+                
+                # Create base filename
+                base_filename = f"{proceeding}_{doc_type}_{submitter_acronym}"
+                
+                # Add suffix if needed
+                if suffix:
+                    base_filename += f"_{suffix}"
+                
+                # Clean filename
+                clean_filename = re.sub(r'[^\w\-_]', '_', base_filename)
+                clean_filename = re.sub(r'_+', '_', clean_filename)  # Remove multiple underscores
+                
+                # Add .pdf extension
+                filename = f"{clean_filename}.pdf"
+                
+                # Update status
+                status_text.text(f"Downloading {processed_count+1}/{total_downloads}: {doc_type} from {submitter}")
+                
+                # Download PDF
+                pdf_url = row.get('pdf_url', '')
+                if not pdf_url:
+                    error_msg = f"No PDF URL available"
+                    st.warning(f"⚠️ Row {idx} ({doc_type}): {error_msg}")
+                    failed_downloads.append({
+                        'index': idx,
+                        'document_type': doc_type,
+                        'submitter': submitter,
+                        'error': error_msg
+                    })
+                    failed_count += 1
+                    processed_count += 1
+                    continue
+                
+                # Check if file already exists
+                pdf_path = Path(documents_folder) / filename
+                if pdf_path.exists():
+                    st.info(f"⏭️ Skipping {filename} (already exists)")
+                    downloaded_count += 1
+                    processed_count += 1
+                    continue
+                
+                # Download PDF with better error handling
+                try:
+                    response = requests.get(pdf_url, timeout=30, stream=True)
+                    response.raise_for_status()
+                    
+                    # Check content type
+                    content_type = response.headers.get('content-type', '').lower()
+                    if 'pdf' not in content_type and 'application/octet-stream' not in content_type:
+                        st.warning(f"⚠️ Row {idx}: Unexpected content type: {content_type}")
+                    
+                    # Check file size
+                    content_length = response.headers.get('content-length')
+                    if content_length and int(content_length) < 1000:  # Less than 1KB is suspicious
+                        st.warning(f"⚠️ Row {idx}: Small file size ({content_length} bytes) - may be corrupted")
+                    
+                except requests.exceptions.Timeout:
+                    error_msg = "Request timeout (30s)"
+                    st.error(f"❌ Row {idx} ({doc_type}): {error_msg}")
+                    failed_downloads.append({
+                        'index': idx,
+                        'document_type': doc_type,
+                        'submitter': submitter,
+                        'error': error_msg
+                    })
+                    failed_count += 1
+                    processed_count += 1
+                    continue
+                except requests.exceptions.ConnectionError:
+                    error_msg = "Connection error"
+                    st.error(f"❌ Row {idx} ({doc_type}): {error_msg}")
+                    failed_downloads.append({
+                        'index': idx,
+                        'document_type': doc_type,
+                        'submitter': submitter,
+                        'error': error_msg
+                    })
+                    failed_count += 1
+                    processed_count += 1
+                    continue
+                except requests.exceptions.HTTPError as e:
+                    error_msg = f"HTTP error {e.response.status_code}: {e.response.reason}"
+                    st.error(f"❌ Row {idx} ({doc_type}): {error_msg}")
+                    failed_downloads.append({
+                        'index': idx,
+                        'document_type': doc_type,
+                        'submitter': submitter,
+                        'error': error_msg
+                    })
+                    failed_count += 1
+                    processed_count += 1
+                    continue
+                
+                # Save PDF
+                with open(pdf_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                
+                # Verify file was saved and has content
+                if not pdf_path.exists() or pdf_path.stat().st_size == 0:
+                    error_msg = "File not saved or empty"
+                    st.error(f"❌ Row {idx} ({doc_type}): {error_msg}")
+                    failed_downloads.append({
+                        'index': idx,
+                        'document_type': doc_type,
+                        'submitter': submitter,
+                        'error': error_msg
+                    })
+                    failed_count += 1
+                    processed_count += 1
+                    continue
+                
+                # Create metadata
+                metadata = {
+                    'filename': filename,
+                    'proceeding': proceeding,
+                    'document_type': doc_type,
+                    'submitter': submitter,
+                    'submitter_acronym': submitter_acronym,
+                    'pdf_url': pdf_url,
+                    'download_date': datetime.now().isoformat(),
+                    'processed': False,
+                    'file_size': pdf_path.stat().st_size,
+                    'docket_group': docket_key,
+                    'doc_suffix': suffix
+                }
+                
+                # Save metadata
+                metadata_file = metadata_folder / f"{filename}.json"
+                with open(metadata_file, 'w') as f:
+                    json.dump(metadata, f, indent=2)
+                
+                downloaded_count += 1
+                st.success(f"✅ Downloaded: {filename} ({pdf_path.stat().st_size:,} bytes)")
+                processed_count += 1
+                
+            except Exception as e:
+                error_msg = f"Unexpected error: {str(e)}"
                 st.error(f"❌ Row {idx} ({doc_type}): {error_msg}")
                 failed_downloads.append({
                     'index': idx,
@@ -193,80 +338,8 @@ def download_pdfs_to_documents_folder(documents_df, documents_folder="./document
                     'error': error_msg
                 })
                 failed_count += 1
+                processed_count += 1
                 continue
-            except requests.exceptions.ConnectionError:
-                error_msg = "Connection error"
-                st.error(f"❌ Row {idx} ({doc_type}): {error_msg}")
-                failed_downloads.append({
-                    'index': idx,
-                    'document_type': doc_type,
-                    'submitter': submitter,
-                    'error': error_msg
-                })
-                failed_count += 1
-                continue
-            except requests.exceptions.HTTPError as e:
-                error_msg = f"HTTP error {e.response.status_code}: {e.response.reason}"
-                st.error(f"❌ Row {idx} ({doc_type}): {error_msg}")
-                failed_downloads.append({
-                    'index': idx,
-                    'document_type': doc_type,
-                    'submitter': submitter,
-                    'error': error_msg
-                })
-                failed_count += 1
-                continue
-            
-            # Save PDF
-            with open(pdf_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            
-            # Verify file was saved and has content
-            if not pdf_path.exists() or pdf_path.stat().st_size == 0:
-                error_msg = "File not saved or empty"
-                st.error(f"❌ Row {idx} ({doc_type}): {error_msg}")
-                failed_downloads.append({
-                    'index': idx,
-                    'document_type': doc_type,
-                    'submitter': submitter,
-                    'error': error_msg
-                })
-                failed_count += 1
-                continue
-            
-            # Create metadata
-            metadata = {
-                'filename': filename,
-                'proceeding': proceeding,
-                'document_type': doc_type,
-                'submitter': submitter,
-                'submitter_acronym': submitter_acronym,
-                'pdf_url': pdf_url,
-                'download_date': datetime.now().isoformat(),
-                'processed': False,
-                'file_size': pdf_path.stat().st_size
-            }
-            
-            # Save metadata
-            metadata_file = metadata_folder / f"{filename}.json"
-            with open(metadata_file, 'w') as f:
-                json.dump(metadata, f, indent=2)
-            
-            downloaded_count += 1
-            st.success(f"✅ Downloaded: {filename} ({pdf_path.stat().st_size:,} bytes)")
-            
-        except Exception as e:
-            error_msg = f"Unexpected error: {str(e)}"
-            st.error(f"❌ Row {idx} ({doc_type}): {error_msg}")
-            failed_downloads.append({
-                'index': idx,
-                'document_type': doc_type,
-                'submitter': submitter,
-                'error': error_msg
-            })
-            failed_count += 1
-            continue
     
     # Clear progress indicators
     progress_bar.empty()
