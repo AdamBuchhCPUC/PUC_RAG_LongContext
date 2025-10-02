@@ -11,13 +11,46 @@ from typing import List, Dict, Any
 import requests
 from datetime import datetime, timedelta
 
-# Selenium imports
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+# Selenium imports (optional for Streamlit Cloud)
+try:
+    from selenium import webdriver
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.chrome.options import Options
+    from selenium.common.exceptions import TimeoutException, NoSuchElementException
+    SELENIUM_AVAILABLE = True
+except ImportError:
+    SELENIUM_AVAILABLE = False
+    # Create dummy classes for when selenium is not available
+    class webdriver:
+        class Chrome:
+            def __init__(self, *args, **kwargs):
+                pass
+    class By:
+        TAG_NAME = "tag_name"
+        CSS_SELECTOR = "css_selector"
+        XPATH = "xpath"
+    class WebDriverWait:
+        def __init__(self, *args, **kwargs):
+            pass
+        def until(self, *args, **kwargs):
+            pass
+    class EC:
+        @staticmethod
+        def presence_of_element_located(*args, **kwargs):
+            pass
+    class Options:
+        def __init__(self):
+            pass
+        def add_argument(self, *args, **kwargs):
+            pass
+        def add_experimental_option(self, *args, **kwargs):
+            pass
+    class TimeoutException(Exception):
+        pass
+    class NoSuchElementException(Exception):
+        pass
 
 # Note: Using the same Chrome driver approach as the working rag_test.py
 
@@ -112,7 +145,10 @@ class CPUCSeleniumScraper:
     def __init__(self, headless=False):  # Changed default to False for debugging
         self.driver = None
         self.headless = headless
-        self._setup_driver()
+        if SELENIUM_AVAILABLE:
+            self._setup_driver()
+        else:
+            st.warning("⚠️ Selenium not available - web scraping features disabled")
     
     def _setup_driver(self):
         """Setup Chrome driver with enhanced anti-detection measures"""
@@ -180,6 +216,10 @@ class CPUCSeleniumScraper:
     
     def validate_proceeding_number(self, proceeding_number):
         """Validate if a proceeding number exists and is accessible using CPUC docket system"""
+        if not SELENIUM_AVAILABLE:
+            st.error("❌ Selenium not available - cannot validate proceeding")
+            return False, "Selenium not available"
+        
         url = f"https://apps.cpuc.ca.gov/apex/f?p=401:56::::RP,57,RIR:P5_PROCEEDING_SELECT:{proceeding_number}"
         
         try:
@@ -398,6 +438,10 @@ class CPUCSeleniumScraper:
     
     def scrape_proceeding(self, proceeding_number, time_filter="Whole docket", keyword_filter="None", max_pages=10):
         """Scrape a CPUC proceeding for documents using the full CPUC docket system"""
+        if not SELENIUM_AVAILABLE:
+            st.error("❌ Selenium not available - web scraping disabled")
+            return 0
+        
         try:
             # Validate proceeding first
             is_valid, message = self.validate_proceeding_number(proceeding_number)
