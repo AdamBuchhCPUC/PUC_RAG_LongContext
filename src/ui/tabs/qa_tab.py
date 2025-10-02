@@ -222,7 +222,6 @@ def create_qa_tab():
         with cols[i % 2]:
             if st.button(f"💬 {example}", key=f"example_{i}"):
                 st.session_state.example_question = example
-                st.rerun()
     
     # Auto-fill example question if selected
     if 'example_question' in st.session_state:
@@ -237,7 +236,6 @@ def create_qa_tab():
             # Process the question (same logic as above)
             # ... (implementation would be the same as the main question processing)
             del st.session_state.example_question
-            st.rerun()
     
     # Smart Query Agent configuration
     st.subheader("⚙️ Smart Query Agent Configuration")
