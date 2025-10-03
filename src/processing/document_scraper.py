@@ -408,6 +408,218 @@ class CPUCSeleniumScraper:
             st.error(f"Error extracting documents: {e}")
             return []
     
+    def find_last_document_type_date(self, documents, document_type):
+        """Find the date of the most recent document of a specific type"""
+        from datetime import datetime
+        
+        document_dates = []
+        
+        for doc in documents:
+            if doc.get('document_type', '').upper() == document_type.upper():
+                filing_date_str = doc['filing_date'].strip()
+                
+                # Try multiple date formats
+                date_formats = [
+                    "%B %d, %Y",      # August 28, 2025
+                    "%B %d,%Y",       # August 28,2025 (no space after comma)
+                    "%B %d, %Y",      # August 28, 2025 (with extra spaces)
+                    "%m/%d/%Y",       # 08/28/2025
+                    "%m-%d-%Y",       # 08-28-2025
+                ]
+                
+                doc_date = None
+                for date_format in date_formats:
+                    try:
+                        doc_date = datetime.strptime(filing_date_str, date_format)
+                        break
+                    except ValueError:
+                        continue
+                
+                if doc_date is not None:
+                    document_dates.append(doc_date)
+        
+        if document_dates:
+            return max(document_dates)
+        return None
+
+    def get_all_documents(self, proceeding_number, max_pages=None, time_filter=None, keyword_filter=None, filter_intervenor_comp=True):
+        """Get all documents for a proceeding using the same approach as rag_test.py"""
+        from datetime import datetime, timedelta
+        documents = []
+        
+        try:
+            # Navigate to documents page
+            if not self.navigate_to_documents(proceeding_number):
+                return documents
+            
+            # Get documents from current page
+            page_documents = self.get_documents_from_current_page(filter_intervenor_comp)
+            documents.extend(page_documents)
+            
+            # Apply filters
+            if time_filter or keyword_filter:
+                filtered_documents = []
+                filtered_out_documents = []  # Track documents that were filtered out
+                
+                # Find last document type date if keyword_filter is a document type
+                last_document_date = None
+                if keyword_filter and keyword_filter in ["PROPOSED DECISION", "SCOPING RULING", "SCOPING MEMO", "DECISION", "RULING"]:
+                    last_document_date = self.find_last_document_type_date(documents, keyword_filter)
+                    if last_document_date:
+                        st.info(f"📅 Found last {keyword_filter} on: {last_document_date.strftime('%B %d, %Y')}")
+                    else:
+                        st.warning(f"⚠️ No {keyword_filter} found in documents. Using all documents.")
+                
+                for doc in documents:
+                    doc_filtered_out = False
+                    filter_reason = ""
+                    
+                    # Apply time filter
+                    if time_filter and doc.get('filing_date'):
+                        try:
+                            # Parse the document date
+                            doc_date = None
+                            try:
+                                doc_date = datetime.strptime(doc['filing_date'], "%B %d, %Y")
+                            except:
+                                try:
+                                    doc_date = datetime.strptime(doc['filing_date'], "%m/%d/%Y")
+                                except:
+                                    continue
+                            
+                            if time_filter == "Last 30 days" and (datetime.now() - doc_date).days > 30:
+                                doc_filtered_out = True
+                                filter_reason = f"Outside {time_filter} (filed {(datetime.now() - doc_date).days} days ago)"
+                            elif time_filter == "Last 60 days" and (datetime.now() - doc_date).days > 60:
+                                doc_filtered_out = True
+                                filter_reason = f"Outside {time_filter} (filed {(datetime.now() - doc_date).days} days ago)"
+                            elif time_filter == "Last 90 days" and (datetime.now() - doc_date).days > 90:
+                                doc_filtered_out = True
+                                filter_reason = f"Outside {time_filter} (filed {(datetime.now() - doc_date).days} days ago)"
+                            elif time_filter == "Last 180 days" and (datetime.now() - doc_date).days > 180:
+                                doc_filtered_out = True
+                                filter_reason = f"Outside {time_filter} (filed {(datetime.now() - doc_date).days} days ago)"
+                            elif time_filter == "Last 12 months" and (datetime.now() - doc_date).days > 365:
+                                doc_filtered_out = True
+                                filter_reason = f"Outside {time_filter} (filed {(datetime.now() - doc_date).days} days ago)"
+                            elif time_filter == "Since 2020" and doc_date.year < 2020:
+                                doc_filtered_out = True
+                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                            elif time_filter == "Since 2019" and doc_date.year < 2019:
+                                doc_filtered_out = True
+                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                            elif time_filter == "Since 2018" and doc_date.year < 2018:
+                                doc_filtered_out = True
+                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                            elif time_filter == "Since 2017" and doc_date.year < 2017:
+                                doc_filtered_out = True
+                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                            elif time_filter == "Since 2016" and doc_date.year < 2016:
+                                doc_filtered_out = True
+                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                            elif time_filter == "Since 2015" and doc_date.year < 2015:
+                                doc_filtered_out = True
+                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                            elif time_filter == "Since 2014" and doc_date.year < 2014:
+                                doc_filtered_out = True
+                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                            elif time_filter == "Since 2013" and doc_date.year < 2013:
+                                doc_filtered_out = True
+                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                            elif time_filter == "Since 2012" and doc_date.year < 2012:
+                                doc_filtered_out = True
+                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                            elif time_filter == "Since 2011" and doc_date.year < 2011:
+                                doc_filtered_out = True
+                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                            elif time_filter == "Since 2010" and doc_date.year < 2010:
+                                doc_filtered_out = True
+                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                        except:
+                            pass
+                    
+                    # Apply keyword filter (document type filter)
+                    if keyword_filter and keyword_filter in ["PROPOSED DECISION", "SCOPING RULING", "SCOPING MEMO", "DECISION", "RULING"]:
+                        if last_document_date:
+                            # Parse the document date with more robust parsing
+                            doc_date = None
+                            filing_date_str = doc['filing_date'].strip()
+                            
+                            # Try multiple date formats
+                            date_formats = [
+                                "%B %d, %Y",      # August 28, 2025
+                                "%B %d,%Y",       # August 28,2025 (no space after comma)
+                                "%B %d, %Y",      # August 28, 2025 (with extra spaces)
+                                "%m/%d/%Y",       # 08/28/2025
+                                "%m-%d-%Y",       # 08-28-2025
+                            ]
+                            
+                            for date_format in date_formats:
+                                try:
+                                    doc_date = datetime.strptime(filing_date_str, date_format)
+                                    break
+                                except ValueError:
+                                    continue
+                            
+                            if doc_date is None:
+                                continue
+                            
+                            # Only include documents on or after the last occurrence of the specified document type
+                            if doc_date < last_document_date:
+                                if not doc_filtered_out:  # Only set if not already filtered by time
+                                    doc_filtered_out = True
+                                    filter_reason = f"Before last {keyword_filter} (filed {doc_date.strftime('%B %d, %Y')})"
+                    elif keyword_filter and keyword_filter != "None":
+                        # Regular keyword filter in description
+                        if keyword_filter.lower() not in doc.get('description', '').lower():
+                            if not doc_filtered_out:  # Only set if not already filtered by time
+                                doc_filtered_out = True
+                                filter_reason = f"Description doesn't contain '{keyword_filter}'"
+                    
+                    # Add to appropriate list
+                    if doc_filtered_out:
+                        filtered_out_documents.append({
+                            'doc': doc,
+                            'reason': filter_reason
+                        })
+                    else:
+                        filtered_documents.append(doc)
+                
+                documents = filtered_documents
+                st.info(f"🔍 Applied filters: {len(documents)} documents remain after filtering")
+                
+                # Display filtered out documents in an expandable list
+                if filtered_out_documents:
+                    with st.expander(f"📋 View {len(filtered_out_documents)} filtered out documents", expanded=False):
+                        st.write("**Documents that were filtered out:**")
+                        
+                        for i, filtered_item in enumerate(filtered_out_documents):
+                            doc = filtered_item['doc']
+                            reason = filtered_item['reason']
+                            
+                            with st.container():
+                                col1, col2 = st.columns([3, 1])
+                                
+                                with col1:
+                                    st.write(f"**{doc.get('document_type', 'Unknown')}** by {doc.get('filed_by', 'Unknown')}")
+                                    st.write(f"📅 {doc.get('filing_date', 'Unknown date')}")
+                                    st.write(f"📝 {doc.get('description', 'No description')[:200]}{'...' if len(doc.get('description', '')) > 200 else ''}")
+                                
+                                with col2:
+                                    st.write(f"❌ **{reason}**")
+                                
+                                if i < len(filtered_out_documents) - 1:  # Don't add separator after last item
+                                    st.divider()
+            
+            # Limit by max_pages (simplified - just take first N documents)
+            if max_pages and len(documents) > max_pages * 10:  # Rough estimate
+                documents = documents[:max_pages * 10]
+                
+        except Exception as e:
+            st.error(f"Error scraping documents: {e}")
+        
+        return documents
+    
     def scrape_proceeding(self, proceeding_number, time_filter="Whole docket", keyword_filter="None", max_pages=10):
         """Scrape a CPUC proceeding for documents using the full CPUC docket system"""
         try:
@@ -424,26 +636,17 @@ class CPUCSeleniumScraper:
                 st.error("❌ Could not navigate to documents page")
                 return 0
             
-            # Get documents from current page
-            documents = self.get_documents_from_current_page()
+            # Get all documents with proper filtering and pagination
+            all_documents = self.get_all_documents(proceeding_number, max_pages, time_filter, keyword_filter)
             
-            if not documents:
+            if not all_documents:
                 st.warning(f"No documents found for proceeding {proceeding_number}")
                 return 0
             
-            st.info(f"📄 Found {len(documents)} documents")
-            
-            # Apply time and keyword filters
-            filtered_documents = self._apply_filters(documents, time_filter, keyword_filter)
-            
-            if not filtered_documents:
-                st.warning("No documents remain after applying filters")
-                return 0
-            
-            st.info(f"📄 {len(filtered_documents)} documents remain after filtering")
+            st.info(f"📄 Found {len(all_documents)} documents")
             
             # Download documents
-            downloaded_count = self._download_documents(filtered_documents, proceeding_number)
+            downloaded_count = self._download_documents(all_documents, proceeding_number)
             return downloaded_count
                 
         except Exception as e:
@@ -479,72 +682,6 @@ class CPUCSeleniumScraper:
             st.error(f"Error extracting documents: {e}")
             return []
     
-    def _apply_filters(self, documents, time_filter, keyword_filter):
-        """Apply time and keyword filters to documents"""
-        from datetime import datetime, timedelta
-        
-        filtered_documents = []
-        
-        for doc in documents:
-            include_doc = True
-            
-            # Apply time filter
-            if time_filter and time_filter != "Whole docket" and doc.get('filing_date'):
-                try:
-                    # Parse the document date
-                    doc_date = None
-                    try:
-                        doc_date = datetime.strptime(doc['filing_date'], "%B %d, %Y")
-                    except:
-                        try:
-                            doc_date = datetime.strptime(doc['filing_date'], "%m/%d/%Y")
-                        except:
-                            continue
-                    
-                    if time_filter == "Last 30 days" and (datetime.now() - doc_date).days > 30:
-                        include_doc = False
-                    elif time_filter == "Last 60 days" and (datetime.now() - doc_date).days > 60:
-                        include_doc = False
-                    elif time_filter == "Last 90 days" and (datetime.now() - doc_date).days > 90:
-                        include_doc = False
-                    elif time_filter == "Last 180 days" and (datetime.now() - doc_date).days > 180:
-                        include_doc = False
-                    elif time_filter == "Last 12 months" and (datetime.now() - doc_date).days > 365:
-                        include_doc = False
-                    elif time_filter == "Since 2020" and doc_date.year < 2020:
-                        include_doc = False
-                    elif time_filter == "Since 2019" and doc_date.year < 2019:
-                        include_doc = False
-                    elif time_filter == "Since 2018" and doc_date.year < 2018:
-                        include_doc = False
-                    elif time_filter == "Since 2017" and doc_date.year < 2017:
-                        include_doc = False
-                    elif time_filter == "Since 2016" and doc_date.year < 2016:
-                        include_doc = False
-                    elif time_filter == "Since 2015" and doc_date.year < 2015:
-                        include_doc = False
-                    elif time_filter == "Since 2014" and doc_date.year < 2014:
-                        include_doc = False
-                    elif time_filter == "Since 2013" and doc_date.year < 2013:
-                        include_doc = False
-                    elif time_filter == "Since 2012" and doc_date.year < 2012:
-                        include_doc = False
-                    elif time_filter == "Since 2011" and doc_date.year < 2011:
-                        include_doc = False
-                    elif time_filter == "Since 2010" and doc_date.year < 2010:
-                        include_doc = False
-                except:
-                    pass
-            
-            # Apply keyword filter
-            if keyword_filter and keyword_filter != "None":
-                if keyword_filter.lower() not in doc.get('description', '').lower():
-                    include_doc = False
-            
-            if include_doc:
-                filtered_documents.append(doc)
-        
-        return filtered_documents
     
     def _download_documents(self, documents, proceeding_number):
         """Download documents to the documents folder with full metadata"""
