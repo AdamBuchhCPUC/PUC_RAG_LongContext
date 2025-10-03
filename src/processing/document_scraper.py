@@ -67,8 +67,8 @@ class DocumentCache:
             temp_file.replace(self.downloads_cache_file)
         except Exception as e:
             # Fallback to original method if atomic write fails
-        with open(self.downloads_cache_file, 'w') as f:
-            json.dump(cache_data, f, indent=2)
+            with open(self.downloads_cache_file, 'w') as f:
+                json.dump(cache_data, f, indent=2)
     
     def get_processing_cache(self):
         """Load processing cache"""
@@ -93,8 +93,8 @@ class DocumentCache:
             temp_file.replace(self.processing_cache_file)
         except Exception as e:
             # Fallback to original method if atomic write fails
-        with open(self.processing_cache_file, 'w') as f:
-            json.dump(cache_data, f, indent=2)
+            with open(self.processing_cache_file, 'w') as f:
+                json.dump(cache_data, f, indent=2)
     
     def get_proceeding_cache_key(self, proceeding_number, time_filter, keyword_filter, max_pages):
         """Generate cache key for a proceeding download"""
@@ -115,9 +115,9 @@ class DocumentCache:
             cache_entry = cache[cache_key]
             # Only use cache if it has documents (don't cache failed attempts)
             if cache_entry.get('documents_count', 0) > 0:
-            # For persistent database building, use cache indefinitely
-            # Only check if documents were actually found and cached
-                    return True, cache_entry
+                # For persistent database building, use cache indefinitely
+                # Only check if documents were actually found and cached
+                return True, cache_entry
         
         return False, None
     
@@ -596,7 +596,7 @@ class CPUCSeleniumScraper:
                         doc_date = datetime.strptime(filing_date_str, date_format)
                         break
                     except ValueError:
-                    continue
+                        continue
             
                 if doc_date is not None:
                     document_dates.append(doc_date)
