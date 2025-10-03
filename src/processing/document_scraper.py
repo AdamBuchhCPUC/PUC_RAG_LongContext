@@ -496,10 +496,12 @@ class CPUCSeleniumScraper:
                 # Find last document type date if keyword_filter is a document type
                 last_document_date = None
                 if keyword_filter and keyword_filter in ["PROPOSED DECISION", "SCOPING RULING", "SCOPING MEMO", "DECISION", "RULING"]:
+                    st.info(f"🔍 Looking for last {keyword_filter} in {len(documents)} documents...")
                     last_document_date = self.find_last_document_type_date(documents, keyword_filter)
                     if last_document_date:
                         st.info(f"📅 Found last {keyword_filter} on: {last_document_date.strftime('%B %d, %Y')}")
-                        st.info(f"🛑 Will stop downloading at the most recent {keyword_filter}")
+                        st.info(f"🛑 Will include the most recent {keyword_filter} and everything after it")
+                        st.info(f"🛑 Documents before {last_document_date.strftime('%B %d, %Y')} will be filtered out")
                     else:
                         st.warning(f"⚠️ No {keyword_filter} found in documents. Using all documents.")
                 
@@ -652,25 +654,12 @@ class CPUCSeleniumScraper:
                                 if i < len(filtered_out_documents) - 1:  # Don't add separator after last item
                                     st.divider()
             
-            # Apply max_pages limit - this should be a reasonable number of documents, not pages
+            # Apply max_pages limit - this should limit to first N pages of documents
             if max_pages and max_pages > 0:
-                # Limit to a reasonable number of documents (not pages * 10)
-                max_documents = min(max_pages * 3, 20)  # Max 3 docs per page, cap at 20 total
+                # Estimate documents per page (typically 10-20 documents per page)
+                estimated_docs_per_page = 15
+                max_documents = max_pages * estimated_docs_per_page
                 st.info(f"🔍 Document limit check: {len(documents)} documents found, max allowed: {max_documents} (max_pages={max_pages})")
-                
-                if len(documents) > max_documents:
-                    st.warning(f"⚠️ TOO MANY DOCUMENTS! Limiting to {max_documents} documents (max_pages={max_pages})")
-                    st.warning(f"⚠️ Original count: {len(documents)} documents")
-                    documents = documents[:max_documents]
-                    st.success(f"✅ Limited to {len(documents)} documents")
-                else:
-                    st.info(f"✅ Document count ({len(documents)}) is within limit ({max_documents})")
-            
-            # Apply max_pages limit even if no other filters are set
-            if not (time_filter or keyword_filter) and max_pages and max_pages > 0:
-                # Limit to a reasonable number of documents (not pages * 10)
-                max_documents = min(max_pages * 3, 20)  # Max 3 docs per page, cap at 20 total
-                st.info(f"🔍 Document limit check (no filters): {len(documents)} documents found, max allowed: {max_documents} (max_pages={max_pages})")
                 
                 if len(documents) > max_documents:
                     st.warning(f"⚠️ TOO MANY DOCUMENTS! Limiting to {max_documents} documents (max_pages={max_pages})")
