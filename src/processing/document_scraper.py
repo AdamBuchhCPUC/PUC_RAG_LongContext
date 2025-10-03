@@ -381,6 +381,7 @@ class CPUCSeleniumScraper:
     
     def get_documents_from_current_page(self, filter_intervenor_comp=True, keyword_filter=None):
         """Extract documents from the currently displayed page using the same approach as rag_test.py"""
+        st.info(f"🔍 [get_documents_from_current_page] Starting with filter_intervenor_comp={filter_intervenor_comp}, keyword_filter={keyword_filter}")
         documents = []
         
         try:
@@ -436,10 +437,11 @@ class CPUCSeleniumScraper:
             
             # Apply keyword filter if specified
             if keyword_filter and keyword_filter in ["PROPOSED DECISION", "SCOPING RULING", "SCOPING MEMO", "DECISION", "RULING"]:
-                st.info(f"🔍 Applying keyword filter: {keyword_filter}")
-                st.info(f"📄 Starting with {len(documents)} documents")
+                st.info(f"🔍 [get_documents_from_current_page] Applying keyword filter: {keyword_filter}")
+                st.info(f"📄 [get_documents_from_current_page] Starting with {len(documents)} documents")
+                st.info(f"🔍 [get_documents_from_current_page] Calling _apply_keyword_filter")
                 filtered_documents = self._apply_keyword_filter(documents, keyword_filter)
-                st.info(f"📄 Filtered from {len(documents)} to {len(filtered_documents)} documents")
+                st.info(f"📄 [get_documents_from_current_page] _apply_keyword_filter returned {len(filtered_documents)} documents (was {len(documents)})")
                 
                 # Debug: Show what documents are being kept
                 if len(filtered_documents) > 0:
@@ -475,10 +477,13 @@ class CPUCSeleniumScraper:
     
     def _apply_keyword_filter(self, documents, keyword_filter):
         """Apply keyword filter to documents - include target document type and everything after it"""
+        st.info(f"🔍 [_apply_keyword_filter] Starting with {len(documents)} documents, looking for '{keyword_filter}'")
         from datetime import datetime
         
         # Find the last occurrence of the target document type
+        st.info(f"🔍 [_apply_keyword_filter] Calling find_last_document_type_date for '{keyword_filter}'")
         last_document_date = self.find_last_document_type_date(documents, keyword_filter)
+        st.info(f"🔍 [_apply_keyword_filter] find_last_document_type_date returned: {last_document_date}")
         
         if not last_document_date:
             st.warning(f"⚠️ No {keyword_filter} found in documents. Using all documents.")
@@ -550,6 +555,7 @@ class CPUCSeleniumScraper:
     
     def find_last_document_type_date(self, documents, document_type):
         """Find the date of the most recent document of a specific type"""
+        st.info(f"🔍 [find_last_document_type_date] Starting with {len(documents)} documents, looking for '{document_type}'")
         from datetime import datetime
         
         # Debug: Show all document types found
@@ -566,7 +572,9 @@ class CPUCSeleniumScraper:
         document_dates = []
         
         for doc in documents:
-            if doc.get('document_type', '').upper() == document_type.upper():
+            doc_type = doc.get('document_type', '')
+            st.info(f"🔍 [find_last_document_type_date] Checking document type: '{doc_type}' == '{document_type}'? {doc_type.upper() == document_type.upper()}")
+            if doc_type.upper() == document_type.upper():
                 filing_date_str = doc['filing_date'].strip()
                 
                 # Try multiple date formats
@@ -595,6 +603,7 @@ class CPUCSeleniumScraper:
 
     def get_all_documents(self, proceeding_number, max_pages=None, time_filter=None, keyword_filter=None, filter_intervenor_comp=True):
         """Get all documents for a proceeding using the same approach as rag_test.py"""
+        st.info(f"🔍 [get_all_documents] Starting with proceeding={proceeding_number}, max_pages={max_pages}, time_filter={time_filter}, keyword_filter={keyword_filter}")
         from datetime import datetime, timedelta
         documents = []
         
@@ -604,7 +613,9 @@ class CPUCSeleniumScraper:
                 return documents
             
             # Get documents from current page
+            st.info(f"🔍 [get_all_documents] Calling get_documents_from_current_page with filter_intervenor_comp={filter_intervenor_comp}, keyword_filter={keyword_filter}")
             page_documents = self.get_documents_from_current_page(filter_intervenor_comp, keyword_filter)
+            st.info(f"🔍 [get_all_documents] get_documents_from_current_page returned {len(page_documents)} documents")
             documents.extend(page_documents)
             
             # Apply time filter if specified (keyword filter is now handled in get_documents_from_current_page)
@@ -694,6 +705,7 @@ class CPUCSeleniumScraper:
     
     def scrape_proceeding(self, proceeding_number, time_filter="Whole docket", keyword_filter="None", max_pages=10):
         """Scrape a CPUC proceeding for documents using the full CPUC docket system"""
+        st.info(f"🔍 [scrape_proceeding] Starting with proceeding={proceeding_number}, time_filter={time_filter}, keyword_filter={keyword_filter}, max_pages={max_pages}")
         try:
             # Validate proceeding first
             is_valid, message = self.validate_proceeding_number(proceeding_number)
@@ -709,6 +721,7 @@ class CPUCSeleniumScraper:
                 return 0
             
             # Get all documents with proper filtering and pagination
+            st.info(f"🔍 [scrape_proceeding] Calling get_all_documents with max_pages={max_pages}, time_filter={time_filter}, keyword_filter={keyword_filter}")
             all_documents = self.get_all_documents(proceeding_number, max_pages, time_filter, keyword_filter)
             
             if not all_documents:
