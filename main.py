@@ -1,4 +1,4 @@
-"""
+after"""
 Main entry point for the PUC RAG (LC) System.
 Streamlined version for Streamlit Cloud deployment.
 """

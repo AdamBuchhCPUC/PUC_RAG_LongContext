@@ -190,6 +190,10 @@ class CPUCSeleniumScraper:
             chrome_options.add_argument("--disable-renderer-backgrounding")
             chrome_options.add_argument("--single-process")
             chrome_options.add_argument("--disable-setuid-sandbox")
+            chrome_options.add_argument("--memory-pressure-off")
+            chrome_options.add_argument("--max_old_space_size=4096")
+            chrome_options.add_argument("--disable-features=TranslateUI")
+            chrome_options.add_argument("--disable-ipc-flooding-protection")
             
             chrome_options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
             chrome_options.add_experimental_option('useAutomationExtension', False)
@@ -624,8 +628,11 @@ class CPUCSeleniumScraper:
             
             # Apply time filter if specified (keyword filter is now handled in get_documents_from_current_page)
             # BUT ONLY if no keyword filter was applied (to avoid overriding keyword filtering)
+            st.info(f"🔍 DEBUG: time_filter='{time_filter}', keyword_filter='{keyword_filter}'")
+            st.info(f"🔍 DEBUG: time_filter check: {bool(time_filter and time_filter != 'Whole docket' and not keyword_filter)}")
             if time_filter and time_filter != "Whole docket" and not keyword_filter:
                 st.info(f"🔍 Applying time filter: {time_filter}")
+                st.info(f"🔍 Starting with {len(documents)} documents before time filtering")
                 filtered_documents = []
                 filtered_out_count = 0
                 
@@ -634,50 +641,88 @@ class CPUCSeleniumScraper:
                     
                     if doc.get('filing_date'):
                         try:
-                            # Parse the document date
+                            # Parse the document date with better error handling
                             doc_date = None
-                            try:
-                                doc_date = datetime.strptime(doc['filing_date'], "%B %d, %Y")
-                            except:
+                            filing_date_str = doc['filing_date'].strip()
+                            
+                            # Try multiple date formats
+                            date_formats = [
+                                "%B %d, %Y",      # May 19, 2025
+                                "%B %d,%Y",       # May 19,2025 (no space after comma)
+                                "%m/%d/%Y",       # 05/19/2025
+                                "%m-%d-%Y",       # 05-19-2025
+                            ]
+                            
+                            for date_format in date_formats:
                                 try:
-                                    doc_date = datetime.strptime(doc['filing_date'], "%m/%d/%Y")
-                                except:
+                                    doc_date = datetime.strptime(filing_date_str, date_format)
+                                    break
+                                except ValueError:
                                     continue
                             
-                            if time_filter == "Last 30 days" and (datetime.now() - doc_date).days > 30:
-                                include_doc = False
-                            elif time_filter == "Last 60 days" and (datetime.now() - doc_date).days > 60:
-                                include_doc = False
-                            elif time_filter == "Last 90 days" and (datetime.now() - doc_date).days > 90:
-                                include_doc = False
-                            elif time_filter == "Last 180 days" and (datetime.now() - doc_date).days > 180:
-                                include_doc = False
-                            elif time_filter == "Last 12 months" and (datetime.now() - doc_date).days > 365:
-                                include_doc = False
-                            elif time_filter == "Since 2020" and doc_date.year < 2020:
-                                include_doc = False
-                            elif time_filter == "Since 2019" and doc_date.year < 2019:
-                                include_doc = False
-                            elif time_filter == "Since 2018" and doc_date.year < 2018:
-                                include_doc = False
-                            elif time_filter == "Since 2017" and doc_date.year < 2017:
-                                include_doc = False
-                            elif time_filter == "Since 2016" and doc_date.year < 2016:
-                                include_doc = False
-                            elif time_filter == "Since 2015" and doc_date.year < 2015:
-                                include_doc = False
-                            elif time_filter == "Since 2014" and doc_date.year < 2014:
-                                include_doc = False
-                            elif time_filter == "Since 2013" and doc_date.year < 2013:
-                                include_doc = False
-                            elif time_filter == "Since 2012" and doc_date.year < 2012:
-                                include_doc = False
-                            elif time_filter == "Since 2011" and doc_date.year < 2011:
-                                include_doc = False
-                            elif time_filter == "Since 2010" and doc_date.year < 2010:
-                                include_doc = False
-                        except:
-                            pass
+                            if doc_date is None:
+                                st.warning(f"⚠️ Could not parse date: {filing_date_str}")
+                                # If we can't parse the date, include the document
+                                include_doc = True
+                            else:
+                                # Apply time filter based on the parsed date
+                                days_ago = (datetime.now() - doc_date).days
+                                st.info(f"🔍 Document date: {doc_date.strftime('%B %d, %Y')} ({days_ago} days ago)")
+                                
+                                if time_filter == "Last 30 days" and days_ago > 30:
+                                    include_doc = False
+                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (too old: {days_ago} days)")
+                                elif time_filter == "Last 60 days" and days_ago > 60:
+                                    include_doc = False
+                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (too old: {days_ago} days)")
+                                elif time_filter == "Last 90 days" and days_ago > 90:
+                                    include_doc = False
+                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (too old: {days_ago} days)")
+                                elif time_filter == "Last 180 days" and days_ago > 180:
+                                    include_doc = False
+                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (too old: {days_ago} days)")
+                                elif time_filter == "Last 12 months" and days_ago > 365:
+                                    include_doc = False
+                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (too old: {days_ago} days)")
+                                elif time_filter == "Since 2020" and doc_date.year < 2020:
+                                    include_doc = False
+                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
+                                elif time_filter == "Since 2019" and doc_date.year < 2019:
+                                    include_doc = False
+                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
+                                elif time_filter == "Since 2018" and doc_date.year < 2018:
+                                    include_doc = False
+                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
+                                elif time_filter == "Since 2017" and doc_date.year < 2017:
+                                    include_doc = False
+                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
+                                elif time_filter == "Since 2016" and doc_date.year < 2016:
+                                    include_doc = False
+                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
+                                elif time_filter == "Since 2015" and doc_date.year < 2015:
+                                    include_doc = False
+                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
+                                elif time_filter == "Since 2014" and doc_date.year < 2014:
+                                    include_doc = False
+                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
+                                elif time_filter == "Since 2013" and doc_date.year < 2013:
+                                    include_doc = False
+                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
+                                elif time_filter == "Since 2012" and doc_date.year < 2012:
+                                    include_doc = False
+                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
+                                elif time_filter == "Since 2011" and doc_date.year < 2011:
+                                    include_doc = False
+                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
+                                elif time_filter == "Since 2010" and doc_date.year < 2010:
+                                    include_doc = False
+                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
+                                else:
+                                    st.info(f"✅ KEEPING: {doc.get('document_type', 'Unknown')} - {filing_date_str} (within time range)")
+                        except Exception as e:
+                            st.warning(f"⚠️ Error processing date for {doc.get('document_type', 'Unknown')}: {e}")
+                            # If there's an error, include the document
+                            include_doc = True
                     
                     if include_doc:
                         filtered_documents.append(doc)
@@ -688,20 +733,9 @@ class CPUCSeleniumScraper:
                 st.info(f"🛑 Time filter removed {filtered_out_count} documents")
                 st.info(f"📄 {len(documents)} documents remain after time filtering")
             
-            # Apply max_pages limit - this should limit to first N pages of documents
-            if max_pages and max_pages > 0:
-                # Estimate documents per page (typically 10-20 documents per page)
-                estimated_docs_per_page = 15
-                max_documents = max_pages * estimated_docs_per_page
-                st.info(f"🔍 Document limit check: {len(documents)} documents found, max allowed: {max_documents} (max_pages={max_pages})")
-                
-                if len(documents) > max_documents:
-                    st.warning(f"⚠️ TOO MANY DOCUMENTS! Limiting to {max_documents} documents (max_pages={max_pages})")
-                    st.warning(f"⚠️ Original count: {len(documents)} documents")
-                    documents = documents[:max_documents]
-                    st.success(f"✅ Limited to {len(documents)} documents")
-                else:
-                    st.info(f"✅ Document count ({len(documents)}) is within limit ({max_documents})")
+            # Note: Removed arbitrary document limit based on max_pages
+            # Documents are now collected without artificial restrictions
+            st.info(f"📄 Found {len(documents)} documents (no artificial limit applied)")
                 
         except Exception as e:
             st.error(f"Error scraping documents: {e}")
@@ -754,7 +788,7 @@ class CPUCSeleniumScraper:
             # This is a simplified version - the actual implementation would be more complex
             doc_elements = self.driver.find_elements(By.CSS_SELECTOR, "a[href*='.pdf']")
             
-            for element in doc_elements[:max_pages * 10]:  # Limit to reasonable number
+            for element in doc_elements:  # Process all documents found
                 try:
                     href = element.get_attribute('href')
                     text = element.text.strip()
@@ -777,6 +811,7 @@ class CPUCSeleniumScraper:
     
     def _download_documents(self, documents, proceeding_number):
         """Download documents to the documents folder with full metadata"""
+        st.info("🔍 USING _DOWNLOAD_DOCUMENTS")
         st.info(f"🔍 [_download_documents] Starting with {len(documents)} documents for proceeding {proceeding_number}")
         documents_folder = Path("./documents")
         documents_folder.mkdir(exist_ok=True)
@@ -887,12 +922,17 @@ class CPUCSeleniumScraper:
         return downloaded_count
     
     def scrape_document_detail_page(self, detail_url, retry_count=0):
-        """Scrape a document detail page to get PDF links and title"""
+        """Scrape a document detail page to get PDF links and title with improved error handling"""
         max_retries = 2
         
         try:
             # Set a shorter timeout for individual page loads
             self.driver.set_page_load_timeout(10)  # Reduced timeout
+            
+            # Add a small delay to prevent overwhelming the server
+            import time
+            time.sleep(0.5)
+            
             self.driver.get(detail_url)
             
             # Wait for page to load with shorter timeout
@@ -901,14 +941,32 @@ class CPUCSeleniumScraper:
             if retry_count < max_retries:
                 st.warning(f"⚠️ Timeout loading detail page (attempt {retry_count + 1}/{max_retries + 1})")
                 import time
-                time.sleep(1)  # Shorter wait
+                time.sleep(2)  # Longer wait for retries
                 return self.scrape_document_detail_page(detail_url, retry_count + 1)
             else:
                 st.warning(f"⚠️ Timeout loading detail page after {max_retries + 1} attempts")
                 return [{"error": "timeout", "url": detail_url}]
         except Exception as e:
-            st.warning(f"Error loading detail page: {e}")
-            return [{"error": str(e), "url": detail_url}]
+            # Check if it's a Chrome driver crash
+            if "Stacktrace" in str(e) or "chrome" in str(e).lower():
+                st.warning(f"⚠️ Chrome driver crash detected: {e}")
+                if retry_count < max_retries:
+                    st.info("🔄 Attempting to restart Chrome driver...")
+                    try:
+                        self.cleanup()
+                        self._setup_driver()
+                        st.info("✅ Chrome driver restarted successfully")
+                        time.sleep(2)
+                        return self.scrape_document_detail_page(detail_url, retry_count + 1)
+                    except Exception as restart_error:
+                        st.error(f"❌ Failed to restart Chrome driver: {restart_error}")
+                        return [{"error": f"Chrome restart failed: {restart_error}", "url": detail_url}]
+                else:
+                    st.error("❌ Chrome driver crashed and max retries exceeded")
+                    return [{"error": "Chrome driver crash", "url": detail_url}]
+            else:
+                st.warning(f"Error loading detail page: {e}")
+                return [{"error": str(e), "url": detail_url}]
         
         title = ""
         
