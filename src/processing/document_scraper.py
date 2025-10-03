@@ -380,7 +380,7 @@ class CPUCSeleniumScraper:
             st.error(f"❌ Error navigating to documents: {e}")
             return False
     
-    def get_documents_from_current_page(self, filter_intervenor_comp=True):
+    def get_documents_from_current_page(self, filter_intervenor_comp=True, keyword_filter=None):
         """Extract documents from the currently displayed page using the same approach as rag_test.py"""
         documents = []
         
@@ -435,10 +435,69 @@ class CPUCSeleniumScraper:
                         'document_url': doc_url
                     })
             
+            # Apply keyword filter if specified
+            if keyword_filter and keyword_filter in ["PROPOSED DECISION", "SCOPING RULING", "SCOPING MEMO", "DECISION", "RULING"]:
+                st.info(f"🔍 Applying keyword filter: {keyword_filter}")
+                filtered_documents = self._apply_keyword_filter(documents, keyword_filter)
+                st.info(f"📄 Filtered from {len(documents)} to {len(filtered_documents)} documents")
+                return filtered_documents
+            
             return documents
         except Exception as e:
             st.error(f"Error extracting documents: {e}")
             return []
+    
+    def _apply_keyword_filter(self, documents, keyword_filter):
+        """Apply keyword filter to documents - include target document type and everything after it"""
+        from datetime import datetime
+        
+        # Find the last occurrence of the target document type
+        last_document_date = self.find_last_document_type_date(documents, keyword_filter)
+        
+        if not last_document_date:
+            st.warning(f"⚠️ No {keyword_filter} found in documents. Using all documents.")
+            return documents
+        
+        st.info(f"📅 Found last {keyword_filter} on: {last_document_date.strftime('%B %d, %Y')}")
+        st.info(f"🛑 Will include the most recent {keyword_filter} and everything after it")
+        
+        filtered_documents = []
+        filtered_out_count = 0
+        
+        for doc in documents:
+            # Parse the document date
+            doc_date = None
+            filing_date_str = doc['filing_date'].strip()
+            
+            # Try multiple date formats
+            date_formats = [
+                "%B %d, %Y",      # August 28, 2025
+                "%B %d,%Y",       # August 28,2025 (no space after comma)
+                "%B %d, %Y",      # August 28, 2025 (with extra spaces)
+                "%m/%d/%Y",       # 08/28/2025
+                "%m-%d-%Y",       # 08-28-2025
+            ]
+            
+            for date_format in date_formats:
+                try:
+                    doc_date = datetime.strptime(filing_date_str, date_format)
+                    break
+                except ValueError:
+                    continue
+            
+            if doc_date is None:
+                # If we can't parse the date, include the document
+                filtered_documents.append(doc)
+                continue
+            
+            # Include documents on or after the last occurrence of the target document type
+            if doc_date >= last_document_date:
+                filtered_documents.append(doc)
+            else:
+                filtered_out_count += 1
+        
+        st.info(f"🛑 Filtered out {filtered_out_count} documents before {last_document_date.strftime('%B %d, %Y')}")
+        return filtered_documents
     
     def find_last_document_type_date(self, documents, document_type):
         """Find the date of the most recent document of a specific type"""
@@ -485,32 +544,19 @@ class CPUCSeleniumScraper:
                 return documents
             
             # Get documents from current page
-            page_documents = self.get_documents_from_current_page(filter_intervenor_comp)
+            page_documents = self.get_documents_from_current_page(filter_intervenor_comp, keyword_filter)
             documents.extend(page_documents)
             
-            # Apply filters (always apply max_pages limit, even if no other filters)
-            if time_filter or keyword_filter or max_pages:
+            # Apply time filter if specified (keyword filter is now handled in get_documents_from_current_page)
+            if time_filter and time_filter != "Whole docket":
+                st.info(f"🔍 Applying time filter: {time_filter}")
                 filtered_documents = []
-                filtered_out_documents = []  # Track documents that were filtered out
-                
-                # Find last document type date if keyword_filter is a document type
-                last_document_date = None
-                if keyword_filter and keyword_filter in ["PROPOSED DECISION", "SCOPING RULING", "SCOPING MEMO", "DECISION", "RULING"]:
-                    st.info(f"🔍 Looking for last {keyword_filter} in {len(documents)} documents...")
-                    last_document_date = self.find_last_document_type_date(documents, keyword_filter)
-                    if last_document_date:
-                        st.info(f"📅 Found last {keyword_filter} on: {last_document_date.strftime('%B %d, %Y')}")
-                        st.info(f"🛑 Will include the most recent {keyword_filter} and everything after it")
-                        st.info(f"🛑 Documents before {last_document_date.strftime('%B %d, %Y')} will be filtered out")
-                    else:
-                        st.warning(f"⚠️ No {keyword_filter} found in documents. Using all documents.")
+                filtered_out_count = 0
                 
                 for doc in documents:
-                    doc_filtered_out = False
-                    filter_reason = ""
+                    include_doc = True
                     
-                    # Apply time filter
-                    if time_filter and doc.get('filing_date'):
+                    if doc.get('filing_date'):
                         try:
                             # Parse the document date
                             doc_date = None
@@ -523,136 +569,48 @@ class CPUCSeleniumScraper:
                                     continue
                             
                             if time_filter == "Last 30 days" and (datetime.now() - doc_date).days > 30:
-                                doc_filtered_out = True
-                                filter_reason = f"Outside {time_filter} (filed {(datetime.now() - doc_date).days} days ago)"
+                                include_doc = False
                             elif time_filter == "Last 60 days" and (datetime.now() - doc_date).days > 60:
-                                doc_filtered_out = True
-                                filter_reason = f"Outside {time_filter} (filed {(datetime.now() - doc_date).days} days ago)"
+                                include_doc = False
                             elif time_filter == "Last 90 days" and (datetime.now() - doc_date).days > 90:
-                                doc_filtered_out = True
-                                filter_reason = f"Outside {time_filter} (filed {(datetime.now() - doc_date).days} days ago)"
+                                include_doc = False
                             elif time_filter == "Last 180 days" and (datetime.now() - doc_date).days > 180:
-                                doc_filtered_out = True
-                                filter_reason = f"Outside {time_filter} (filed {(datetime.now() - doc_date).days} days ago)"
+                                include_doc = False
                             elif time_filter == "Last 12 months" and (datetime.now() - doc_date).days > 365:
-                                doc_filtered_out = True
-                                filter_reason = f"Outside {time_filter} (filed {(datetime.now() - doc_date).days} days ago)"
+                                include_doc = False
                             elif time_filter == "Since 2020" and doc_date.year < 2020:
-                                doc_filtered_out = True
-                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                                include_doc = False
                             elif time_filter == "Since 2019" and doc_date.year < 2019:
-                                doc_filtered_out = True
-                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                                include_doc = False
                             elif time_filter == "Since 2018" and doc_date.year < 2018:
-                                doc_filtered_out = True
-                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                                include_doc = False
                             elif time_filter == "Since 2017" and doc_date.year < 2017:
-                                doc_filtered_out = True
-                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                                include_doc = False
                             elif time_filter == "Since 2016" and doc_date.year < 2016:
-                                doc_filtered_out = True
-                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                                include_doc = False
                             elif time_filter == "Since 2015" and doc_date.year < 2015:
-                                doc_filtered_out = True
-                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                                include_doc = False
                             elif time_filter == "Since 2014" and doc_date.year < 2014:
-                                doc_filtered_out = True
-                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                                include_doc = False
                             elif time_filter == "Since 2013" and doc_date.year < 2013:
-                                doc_filtered_out = True
-                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                                include_doc = False
                             elif time_filter == "Since 2012" and doc_date.year < 2012:
-                                doc_filtered_out = True
-                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                                include_doc = False
                             elif time_filter == "Since 2011" and doc_date.year < 2011:
-                                doc_filtered_out = True
-                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                                include_doc = False
                             elif time_filter == "Since 2010" and doc_date.year < 2010:
-                                doc_filtered_out = True
-                                filter_reason = f"Before {time_filter} (filed in {doc_date.year})"
+                                include_doc = False
                         except:
                             pass
                     
-                    # Apply keyword filter (document type filter)
-                    if keyword_filter and keyword_filter in ["PROPOSED DECISION", "SCOPING RULING", "SCOPING MEMO", "DECISION", "RULING"]:
-                        if last_document_date:
-                            # Parse the document date with more robust parsing
-                            doc_date = None
-                            filing_date_str = doc['filing_date'].strip()
-                            
-                            # Try multiple date formats
-                            date_formats = [
-                                "%B %d, %Y",      # August 28, 2025
-                                "%B %d,%Y",       # August 28,2025 (no space after comma)
-                                "%B %d, %Y",      # August 28, 2025 (with extra spaces)
-                                "%m/%d/%Y",       # 08/28/2025
-                                "%m-%d-%Y",       # 08-28-2025
-                            ]
-                            
-                            for date_format in date_formats:
-                                try:
-                                    doc_date = datetime.strptime(filing_date_str, date_format)
-                                    break
-                                except ValueError:
-                                    continue
-                            
-                            if doc_date is None:
-                                continue
-                            
-                            # Only include documents on or after the last occurrence of the specified document type
-                            if doc_date < last_document_date:
-                                if not doc_filtered_out:  # Only set if not already filtered by time
-                                    doc_filtered_out = True
-                                    filter_reason = f"Before last {keyword_filter} (filed {doc_date.strftime('%B %d, %Y')})"
-                    elif keyword_filter and keyword_filter != "None":
-                        # Regular keyword filter in description
-                        if keyword_filter.lower() not in doc.get('description', '').lower():
-                            if not doc_filtered_out:  # Only set if not already filtered by time
-                                doc_filtered_out = True
-                                filter_reason = f"Description doesn't contain '{keyword_filter}'"
-                    
-                    # Add to appropriate list
-                    if doc_filtered_out:
-                        filtered_out_documents.append({
-                            'doc': doc,
-                            'reason': filter_reason
-                        })
-                    else:
+                    if include_doc:
                         filtered_documents.append(doc)
+                    else:
+                        filtered_out_count += 1
                 
                 documents = filtered_documents
-                st.info(f"🔍 Applied filters: {len(documents)} documents remain after filtering")
-                
-                # Debug: Show what documents are being kept
-                if last_document_date:
-                    st.info(f"🔍 Documents after filtering by {keyword_filter}:")
-                    for i, doc in enumerate(documents[:5]):  # Show first 5
-                        st.write(f"  {i+1}. {doc.get('document_type', 'Unknown')} - {doc.get('filing_date', 'Unknown date')}")
-                    if len(documents) > 5:
-                        st.write(f"  ... and {len(documents) - 5} more documents")
-                
-                # Display filtered out documents in an expandable list
-                if filtered_out_documents:
-                    with st.expander(f"📋 View {len(filtered_out_documents)} filtered out documents", expanded=False):
-                        st.write("**Documents that were filtered out:**")
-                        
-                        for i, filtered_item in enumerate(filtered_out_documents):
-                            doc = filtered_item['doc']
-                            reason = filtered_item['reason']
-                            
-                            with st.container():
-                                col1, col2 = st.columns([3, 1])
-                                
-                                with col1:
-                                    st.write(f"**{doc.get('document_type', 'Unknown')}** by {doc.get('filed_by', 'Unknown')}")
-                                    st.write(f"📅 {doc.get('filing_date', 'Unknown date')}")
-                                    st.write(f"📝 {doc.get('description', 'No description')[:200]}{'...' if len(doc.get('description', '')) > 200 else ''}")
-                                
-                                with col2:
-                                    st.write(f"❌ **{reason}**")
-                                
-                                if i < len(filtered_out_documents) - 1:  # Don't add separator after last item
-                                    st.divider()
+                st.info(f"🛑 Time filter removed {filtered_out_count} documents")
+                st.info(f"📄 {len(documents)} documents remain after time filtering")
             
             # Apply max_pages limit - this should limit to first N pages of documents
             if max_pages and max_pages > 0:
