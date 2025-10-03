@@ -552,6 +552,17 @@ class CPUCSeleniumScraper:
         """Find the date of the most recent document of a specific type"""
         from datetime import datetime
         
+        # Debug: Show all document types found
+        st.info(f"🔍 Looking for document type: '{document_type}'")
+        st.info(f"🔍 All document types found in the documents:")
+        document_types = set()
+        for doc in documents:
+            doc_type = doc.get('document_type', 'Unknown')
+            document_types.add(doc_type)
+        
+        for doc_type in sorted(document_types):
+            st.write(f"  - '{doc_type}'")
+        
         document_dates = []
         
         for doc in documents:
