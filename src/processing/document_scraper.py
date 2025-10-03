@@ -438,8 +438,18 @@ class CPUCSeleniumScraper:
             # Apply keyword filter if specified
             if keyword_filter and keyword_filter in ["PROPOSED DECISION", "SCOPING RULING", "SCOPING MEMO", "DECISION", "RULING"]:
                 st.info(f"🔍 Applying keyword filter: {keyword_filter}")
+                st.info(f"📄 Starting with {len(documents)} documents")
                 filtered_documents = self._apply_keyword_filter(documents, keyword_filter)
                 st.info(f"📄 Filtered from {len(documents)} to {len(filtered_documents)} documents")
+                
+                # Debug: Show what documents are being kept
+                if len(filtered_documents) > 0:
+                    st.info(f"🔍 First 5 documents after filtering:")
+                    for i, doc in enumerate(filtered_documents[:5]):
+                        st.write(f"  {i+1}. {doc.get('document_type', 'Unknown')} - {doc.get('filing_date', 'Unknown date')}")
+                    if len(filtered_documents) > 5:
+                        st.write(f"  ... and {len(filtered_documents) - 5} more documents")
+                
                 return filtered_documents
             
             return documents
@@ -460,6 +470,13 @@ class CPUCSeleniumScraper:
         
         st.info(f"📅 Found last {keyword_filter} on: {last_document_date.strftime('%B %d, %Y')}")
         st.info(f"🛑 Will include the most recent {keyword_filter} and everything after it")
+        
+        # Debug: Show all documents and their dates
+        st.info(f"🔍 All {len(documents)} documents with dates:")
+        for i, doc in enumerate(documents[:10]):  # Show first 10
+            st.write(f"  {i+1}. {doc.get('document_type', 'Unknown')} - {doc.get('filing_date', 'Unknown date')}")
+        if len(documents) > 10:
+            st.write(f"  ... and {len(documents) - 10} more documents")
         
         filtered_documents = []
         filtered_out_count = 0
