@@ -4,6 +4,9 @@ Handles web scraping, caching, and document download management.
 """
 
 import streamlit as st
+
+# DEBUG: This file is being loaded
+st.info("🔍 [DEBUG] document_scraper.py is being loaded!")
 import os
 import json
 from pathlib import Path
