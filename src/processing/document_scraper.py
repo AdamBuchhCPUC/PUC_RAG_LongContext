@@ -64,8 +64,8 @@ class DocumentCache:
             temp_file.replace(self.downloads_cache_file)
         except Exception as e:
             # Fallback to original method if atomic write fails
-            with open(self.downloads_cache_file, 'w') as f:
-                json.dump(cache_data, f, indent=2)
+        with open(self.downloads_cache_file, 'w') as f:
+            json.dump(cache_data, f, indent=2)
     
     def get_processing_cache(self):
         """Load processing cache"""
@@ -90,8 +90,8 @@ class DocumentCache:
             temp_file.replace(self.processing_cache_file)
         except Exception as e:
             # Fallback to original method if atomic write fails
-            with open(self.processing_cache_file, 'w') as f:
-                json.dump(cache_data, f, indent=2)
+        with open(self.processing_cache_file, 'w') as f:
+            json.dump(cache_data, f, indent=2)
     
     def get_proceeding_cache_key(self, proceeding_number, time_filter, keyword_filter, max_pages):
         """Generate cache key for a proceeding download"""
@@ -114,7 +114,7 @@ class DocumentCache:
             if cache_entry.get('documents_count', 0) > 0:
             # For persistent database building, use cache indefinitely
             # Only check if documents were actually found and cached
-            return True, cache_entry
+                    return True, cache_entry
         
         return False, None
     
@@ -443,11 +443,28 @@ class CPUCSeleniumScraper:
                 
                 # Debug: Show what documents are being kept
                 if len(filtered_documents) > 0:
-                    st.info(f"🔍 First 5 documents after filtering:")
-                    for i, doc in enumerate(filtered_documents[:5]):
-                        st.write(f"  {i+1}. {doc.get('document_type', 'Unknown')} - {doc.get('filing_date', 'Unknown date')}")
-                    if len(filtered_documents) > 5:
-                        st.write(f"  ... and {len(filtered_documents) - 5} more documents")
+                    st.info(f"🔍 All {len(filtered_documents)} documents after filtering:")
+                    
+                    # Create a detailed table
+                    import pandas as pd
+                    
+                    # Prepare data for the table
+                    table_data = []
+                    for i, doc in enumerate(filtered_documents):
+                        table_data.append({
+                            'Index': i + 1,
+                            'Document Type': doc.get('document_type', 'Unknown'),
+                            'Filing Date': doc.get('filing_date', 'Unknown date'),
+                            'Filed By': doc.get('filed_by', 'Unknown'),
+                            'Description': doc.get('description', 'No description')[:50] + '...' if len(doc.get('description', '')) > 50 else doc.get('description', 'No description')
+                        })
+                    
+                    # Create and display the table
+                    df = pd.DataFrame(table_data)
+                    st.dataframe(df, use_container_width=True)
+                    
+                    # Also show a summary
+                    st.info(f"📊 Summary: {len(filtered_documents)} documents will be downloaded")
                 
                 return filtered_documents
             
@@ -471,11 +488,25 @@ class CPUCSeleniumScraper:
         st.info(f"🛑 Will include documents UP TO AND INCLUDING the most recent {keyword_filter}")
         
         # Debug: Show all documents and their dates
-        st.info(f"🔍 All {len(documents)} documents with dates:")
-        for i, doc in enumerate(documents[:10]):  # Show first 10
-            st.write(f"  {i+1}. {doc.get('document_type', 'Unknown')} - {doc.get('filing_date', 'Unknown date')}")
-        if len(documents) > 10:
-            st.write(f"  ... and {len(documents) - 10} more documents")
+        st.info(f"🔍 All {len(documents)} documents before filtering:")
+        
+        # Create a table of all documents
+        import pandas as pd
+        
+        # Prepare data for the table
+        table_data = []
+        for i, doc in enumerate(documents):
+            table_data.append({
+                'Index': i + 1,
+                'Document Type': doc.get('document_type', 'Unknown'),
+                'Filing Date': doc.get('filing_date', 'Unknown date'),
+                'Filed By': doc.get('filed_by', 'Unknown'),
+                'Description': doc.get('description', 'No description')[:50] + '...' if len(doc.get('description', '')) > 50 else doc.get('description', 'No description')
+            })
+        
+        # Create and display the table
+        df = pd.DataFrame(table_data)
+        st.dataframe(df, use_container_width=True)
         
         filtered_documents = []
         filtered_out_count = 0
@@ -542,8 +573,8 @@ class CPUCSeleniumScraper:
                         doc_date = datetime.strptime(filing_date_str, date_format)
                         break
                     except ValueError:
-                        continue
-                
+                    continue
+            
                 if doc_date is not None:
                     document_dates.append(doc_date)
         
@@ -568,61 +599,61 @@ class CPUCSeleniumScraper:
             # Apply time filter if specified (keyword filter is now handled in get_documents_from_current_page)
             if time_filter and time_filter != "Whole docket":
                 st.info(f"🔍 Applying time filter: {time_filter}")
-                filtered_documents = []
+        filtered_documents = []
                 filtered_out_count = 0
-                
-                for doc in documents:
-                    include_doc = True
-                    
+        
+        for doc in documents:
+            include_doc = True
+            
                     if doc.get('filing_date'):
+                try:
+                    # Parse the document date
+                    doc_date = None
+                    try:
+                        doc_date = datetime.strptime(doc['filing_date'], "%B %d, %Y")
+                    except:
                         try:
-                            # Parse the document date
-                            doc_date = None
-                            try:
-                                doc_date = datetime.strptime(doc['filing_date'], "%B %d, %Y")
-                            except:
-                                try:
-                                    doc_date = datetime.strptime(doc['filing_date'], "%m/%d/%Y")
-                                except:
-                                    continue
-                            
-                            if time_filter == "Last 30 days" and (datetime.now() - doc_date).days > 30:
-                                include_doc = False
-                            elif time_filter == "Last 60 days" and (datetime.now() - doc_date).days > 60:
-                                include_doc = False
-                            elif time_filter == "Last 90 days" and (datetime.now() - doc_date).days > 90:
-                                include_doc = False
-                            elif time_filter == "Last 180 days" and (datetime.now() - doc_date).days > 180:
-                                include_doc = False
-                            elif time_filter == "Last 12 months" and (datetime.now() - doc_date).days > 365:
-                                include_doc = False
-                            elif time_filter == "Since 2020" and doc_date.year < 2020:
-                                include_doc = False
-                            elif time_filter == "Since 2019" and doc_date.year < 2019:
-                                include_doc = False
-                            elif time_filter == "Since 2018" and doc_date.year < 2018:
-                                include_doc = False
-                            elif time_filter == "Since 2017" and doc_date.year < 2017:
-                                include_doc = False
-                            elif time_filter == "Since 2016" and doc_date.year < 2016:
-                                include_doc = False
-                            elif time_filter == "Since 2015" and doc_date.year < 2015:
-                                include_doc = False
-                            elif time_filter == "Since 2014" and doc_date.year < 2014:
-                                include_doc = False
-                            elif time_filter == "Since 2013" and doc_date.year < 2013:
-                                include_doc = False
-                            elif time_filter == "Since 2012" and doc_date.year < 2012:
-                                include_doc = False
-                            elif time_filter == "Since 2011" and doc_date.year < 2011:
-                                include_doc = False
-                            elif time_filter == "Since 2010" and doc_date.year < 2010:
-                                include_doc = False
+                            doc_date = datetime.strptime(doc['filing_date'], "%m/%d/%Y")
                         except:
-                            pass
+                            continue
                     
-                    if include_doc:
-                        filtered_documents.append(doc)
+                    if time_filter == "Last 30 days" and (datetime.now() - doc_date).days > 30:
+                        include_doc = False
+                    elif time_filter == "Last 60 days" and (datetime.now() - doc_date).days > 60:
+                        include_doc = False
+                    elif time_filter == "Last 90 days" and (datetime.now() - doc_date).days > 90:
+                        include_doc = False
+                    elif time_filter == "Last 180 days" and (datetime.now() - doc_date).days > 180:
+                        include_doc = False
+                    elif time_filter == "Last 12 months" and (datetime.now() - doc_date).days > 365:
+                        include_doc = False
+                    elif time_filter == "Since 2020" and doc_date.year < 2020:
+                        include_doc = False
+                    elif time_filter == "Since 2019" and doc_date.year < 2019:
+                        include_doc = False
+                    elif time_filter == "Since 2018" and doc_date.year < 2018:
+                        include_doc = False
+                    elif time_filter == "Since 2017" and doc_date.year < 2017:
+                        include_doc = False
+                    elif time_filter == "Since 2016" and doc_date.year < 2016:
+                        include_doc = False
+                    elif time_filter == "Since 2015" and doc_date.year < 2015:
+                        include_doc = False
+                    elif time_filter == "Since 2014" and doc_date.year < 2014:
+                        include_doc = False
+                    elif time_filter == "Since 2013" and doc_date.year < 2013:
+                        include_doc = False
+                    elif time_filter == "Since 2012" and doc_date.year < 2012:
+                        include_doc = False
+                    elif time_filter == "Since 2011" and doc_date.year < 2011:
+                        include_doc = False
+                    elif time_filter == "Since 2010" and doc_date.year < 2010:
+                        include_doc = False
+                except:
+                    pass
+            
+            if include_doc:
+                filtered_documents.append(doc)
                     else:
                         filtered_out_count += 1
                 
