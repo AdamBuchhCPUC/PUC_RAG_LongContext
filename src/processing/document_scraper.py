@@ -610,61 +610,61 @@ class CPUCSeleniumScraper:
             # Apply time filter if specified (keyword filter is now handled in get_documents_from_current_page)
             if time_filter and time_filter != "Whole docket":
                 st.info(f"🔍 Applying time filter: {time_filter}")
-        filtered_documents = []
+                filtered_documents = []
                 filtered_out_count = 0
-        
-        for doc in documents:
-            include_doc = True
-            
-                    if doc.get('filing_date'):
-                try:
-                    # Parse the document date
-                    doc_date = None
-                    try:
-                        doc_date = datetime.strptime(doc['filing_date'], "%B %d, %Y")
-                    except:
-                        try:
-                            doc_date = datetime.strptime(doc['filing_date'], "%m/%d/%Y")
-                        except:
-                            continue
+                
+                for doc in documents:
+                    include_doc = True
                     
-                    if time_filter == "Last 30 days" and (datetime.now() - doc_date).days > 30:
-                        include_doc = False
-                    elif time_filter == "Last 60 days" and (datetime.now() - doc_date).days > 60:
-                        include_doc = False
-                    elif time_filter == "Last 90 days" and (datetime.now() - doc_date).days > 90:
-                        include_doc = False
-                    elif time_filter == "Last 180 days" and (datetime.now() - doc_date).days > 180:
-                        include_doc = False
-                    elif time_filter == "Last 12 months" and (datetime.now() - doc_date).days > 365:
-                        include_doc = False
-                    elif time_filter == "Since 2020" and doc_date.year < 2020:
-                        include_doc = False
-                    elif time_filter == "Since 2019" and doc_date.year < 2019:
-                        include_doc = False
-                    elif time_filter == "Since 2018" and doc_date.year < 2018:
-                        include_doc = False
-                    elif time_filter == "Since 2017" and doc_date.year < 2017:
-                        include_doc = False
-                    elif time_filter == "Since 2016" and doc_date.year < 2016:
-                        include_doc = False
-                    elif time_filter == "Since 2015" and doc_date.year < 2015:
-                        include_doc = False
-                    elif time_filter == "Since 2014" and doc_date.year < 2014:
-                        include_doc = False
-                    elif time_filter == "Since 2013" and doc_date.year < 2013:
-                        include_doc = False
-                    elif time_filter == "Since 2012" and doc_date.year < 2012:
-                        include_doc = False
-                    elif time_filter == "Since 2011" and doc_date.year < 2011:
-                        include_doc = False
-                    elif time_filter == "Since 2010" and doc_date.year < 2010:
-                        include_doc = False
-                except:
-                    pass
-            
-            if include_doc:
-                filtered_documents.append(doc)
+                    if doc.get('filing_date'):
+                        try:
+                            # Parse the document date
+                            doc_date = None
+                            try:
+                                doc_date = datetime.strptime(doc['filing_date'], "%B %d, %Y")
+                            except:
+                                try:
+                                    doc_date = datetime.strptime(doc['filing_date'], "%m/%d/%Y")
+                                except:
+                                    continue
+                            
+                            if time_filter == "Last 30 days" and (datetime.now() - doc_date).days > 30:
+                                include_doc = False
+                            elif time_filter == "Last 60 days" and (datetime.now() - doc_date).days > 60:
+                                include_doc = False
+                            elif time_filter == "Last 90 days" and (datetime.now() - doc_date).days > 90:
+                                include_doc = False
+                            elif time_filter == "Last 180 days" and (datetime.now() - doc_date).days > 180:
+                                include_doc = False
+                            elif time_filter == "Last 12 months" and (datetime.now() - doc_date).days > 365:
+                                include_doc = False
+                            elif time_filter == "Since 2020" and doc_date.year < 2020:
+                                include_doc = False
+                            elif time_filter == "Since 2019" and doc_date.year < 2019:
+                                include_doc = False
+                            elif time_filter == "Since 2018" and doc_date.year < 2018:
+                                include_doc = False
+                            elif time_filter == "Since 2017" and doc_date.year < 2017:
+                                include_doc = False
+                            elif time_filter == "Since 2016" and doc_date.year < 2016:
+                                include_doc = False
+                            elif time_filter == "Since 2015" and doc_date.year < 2015:
+                                include_doc = False
+                            elif time_filter == "Since 2014" and doc_date.year < 2014:
+                                include_doc = False
+                            elif time_filter == "Since 2013" and doc_date.year < 2013:
+                                include_doc = False
+                            elif time_filter == "Since 2012" and doc_date.year < 2012:
+                                include_doc = False
+                            elif time_filter == "Since 2011" and doc_date.year < 2011:
+                                include_doc = False
+                            elif time_filter == "Since 2010" and doc_date.year < 2010:
+                                include_doc = False
+                        except:
+                            pass
+                    
+                    if include_doc:
+                        filtered_documents.append(doc)
                     else:
                         filtered_out_count += 1
                 
