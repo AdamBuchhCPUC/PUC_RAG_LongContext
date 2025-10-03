@@ -488,8 +488,8 @@ class CPUCSeleniumScraper:
             page_documents = self.get_documents_from_current_page(filter_intervenor_comp)
             documents.extend(page_documents)
             
-            # Apply filters
-            if time_filter or keyword_filter:
+            # Apply filters (always apply max_pages limit, even if no other filters)
+            if time_filter or keyword_filter or max_pages:
                 filtered_documents = []
                 filtered_out_documents = []  # Track documents that were filtered out
                 
@@ -655,12 +655,30 @@ class CPUCSeleniumScraper:
             # Apply max_pages limit - this should be a reasonable number of documents, not pages
             if max_pages and max_pages > 0:
                 # Limit to a reasonable number of documents (not pages * 10)
-                max_documents = min(max_pages * 5, 50)  # Max 5 docs per page, cap at 50 total
+                max_documents = min(max_pages * 3, 20)  # Max 3 docs per page, cap at 20 total
+                st.info(f"🔍 Document limit check: {len(documents)} documents found, max allowed: {max_documents} (max_pages={max_pages})")
+                
                 if len(documents) > max_documents:
                     st.warning(f"⚠️ TOO MANY DOCUMENTS! Limiting to {max_documents} documents (max_pages={max_pages})")
                     st.warning(f"⚠️ Original count: {len(documents)} documents")
                     documents = documents[:max_documents]
                     st.success(f"✅ Limited to {len(documents)} documents")
+                else:
+                    st.info(f"✅ Document count ({len(documents)}) is within limit ({max_documents})")
+            
+            # Apply max_pages limit even if no other filters are set
+            if not (time_filter or keyword_filter) and max_pages and max_pages > 0:
+                # Limit to a reasonable number of documents (not pages * 10)
+                max_documents = min(max_pages * 3, 20)  # Max 3 docs per page, cap at 20 total
+                st.info(f"🔍 Document limit check (no filters): {len(documents)} documents found, max allowed: {max_documents} (max_pages={max_pages})")
+                
+                if len(documents) > max_documents:
+                    st.warning(f"⚠️ TOO MANY DOCUMENTS! Limiting to {max_documents} documents (max_pages={max_pages})")
+                    st.warning(f"⚠️ Original count: {len(documents)} documents")
+                    documents = documents[:max_documents]
+                    st.success(f"✅ Limited to {len(documents)} documents")
+                else:
+                    st.info(f"✅ Document count ({len(documents)}) is within limit ({max_documents})")
                 
         except Exception as e:
             st.error(f"Error scraping documents: {e}")
