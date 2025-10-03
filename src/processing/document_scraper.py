@@ -28,8 +28,17 @@ class DocumentCache:
     def __init__(self, cache_folder="./cache"):
         self.cache_folder = Path(cache_folder)
         self.cache_folder.mkdir(exist_ok=True)
-        self.downloads_cache_file = self.cache_folder / "downloads_cache.json"
-        self.processing_cache_file = self.cache_folder / "processing_cache.json"
+        
+        # Add session ID to prevent concurrent user conflicts
+        import streamlit as st
+        session_id = st.session_state.get('session_id', 'default')
+        if 'session_id' not in st.session_state:
+            import uuid
+            st.session_state.session_id = str(uuid.uuid4())[:8]
+            session_id = st.session_state.session_id
+        
+        self.downloads_cache_file = self.cache_folder / f"downloads_cache_{session_id}.json"
+        self.processing_cache_file = self.cache_folder / f"processing_cache_{session_id}.json"
         
     def get_downloads_cache(self):
         """Load downloads cache"""
@@ -42,9 +51,21 @@ class DocumentCache:
         return {}
     
     def save_downloads_cache(self, cache_data):
-        """Save downloads cache"""
-        with open(self.downloads_cache_file, 'w') as f:
-            json.dump(cache_data, f, indent=2)
+        """Save downloads cache with file locking for concurrent access"""
+        import fcntl
+        import tempfile
+        
+        # Use atomic write to prevent corruption during concurrent access
+        temp_file = self.downloads_cache_file.with_suffix('.tmp')
+        try:
+            with open(temp_file, 'w') as f:
+                json.dump(cache_data, f, indent=2)
+            # Atomic move
+            temp_file.replace(self.downloads_cache_file)
+        except Exception as e:
+            # Fallback to original method if atomic write fails
+            with open(self.downloads_cache_file, 'w') as f:
+                json.dump(cache_data, f, indent=2)
     
     def get_processing_cache(self):
         """Load processing cache"""
@@ -57,9 +78,20 @@ class DocumentCache:
         return {}
     
     def save_processing_cache(self, cache_data):
-        """Save processing cache"""
-        with open(self.processing_cache_file, 'w') as f:
-            json.dump(cache_data, f, indent=2)
+        """Save processing cache with file locking for concurrent access"""
+        import tempfile
+        
+        # Use atomic write to prevent corruption during concurrent access
+        temp_file = self.processing_cache_file.with_suffix('.tmp')
+        try:
+            with open(temp_file, 'w') as f:
+                json.dump(cache_data, f, indent=2)
+            # Atomic move
+            temp_file.replace(self.processing_cache_file)
+        except Exception as e:
+            # Fallback to original method if atomic write fails
+            with open(self.processing_cache_file, 'w') as f:
+                json.dump(cache_data, f, indent=2)
     
     def get_proceeding_cache_key(self, proceeding_number, time_filter, keyword_filter, max_pages):
         """Generate cache key for a proceeding download"""
@@ -467,6 +499,7 @@ class CPUCSeleniumScraper:
                     last_document_date = self.find_last_document_type_date(documents, keyword_filter)
                     if last_document_date:
                         st.info(f"📅 Found last {keyword_filter} on: {last_document_date.strftime('%B %d, %Y')}")
+                        st.info(f"🛑 Will stop downloading at the most recent {keyword_filter}")
                     else:
                         st.warning(f"⚠️ No {keyword_filter} found in documents. Using all documents.")
                 
@@ -588,6 +621,14 @@ class CPUCSeleniumScraper:
                 documents = filtered_documents
                 st.info(f"🔍 Applied filters: {len(documents)} documents remain after filtering")
                 
+                # Debug: Show what documents are being kept
+                if last_document_date:
+                    st.info(f"🔍 Documents after filtering by {keyword_filter}:")
+                    for i, doc in enumerate(documents[:5]):  # Show first 5
+                        st.write(f"  {i+1}. {doc.get('document_type', 'Unknown')} - {doc.get('filing_date', 'Unknown date')}")
+                    if len(documents) > 5:
+                        st.write(f"  ... and {len(documents) - 5} more documents")
+                
                 # Display filtered out documents in an expandable list
                 if filtered_out_documents:
                     with st.expander(f"📋 View {len(filtered_out_documents)} filtered out documents", expanded=False):
@@ -611,9 +652,15 @@ class CPUCSeleniumScraper:
                                 if i < len(filtered_out_documents) - 1:  # Don't add separator after last item
                                     st.divider()
             
-            # Limit by max_pages (simplified - just take first N documents)
-            if max_pages and len(documents) > max_pages * 10:  # Rough estimate
-                documents = documents[:max_pages * 10]
+            # Apply max_pages limit - this should be a reasonable number of documents, not pages
+            if max_pages and max_pages > 0:
+                # Limit to a reasonable number of documents (not pages * 10)
+                max_documents = min(max_pages * 5, 50)  # Max 5 docs per page, cap at 50 total
+                if len(documents) > max_documents:
+                    st.warning(f"⚠️ TOO MANY DOCUMENTS! Limiting to {max_documents} documents (max_pages={max_pages})")
+                    st.warning(f"⚠️ Original count: {len(documents)} documents")
+                    documents = documents[:max_documents]
+                    st.success(f"✅ Limited to {len(documents)} documents")
                 
         except Exception as e:
             st.error(f"Error scraping documents: {e}")
