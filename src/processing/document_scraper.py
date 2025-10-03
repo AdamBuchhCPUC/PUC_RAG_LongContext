@@ -112,10 +112,9 @@ class DocumentCache:
             cache_entry = cache[cache_key]
             # Only use cache if it has documents (don't cache failed attempts)
             if cache_entry.get('documents_count', 0) > 0:
-                # Check if cache is less than 24 hours old
-                download_time = datetime.fromisoformat(cache_entry['download_time'])
-                if datetime.now() - download_time < timedelta(hours=24):
-                    return True, cache_entry
+            # For persistent database building, use cache indefinitely
+            # Only check if documents were actually found and cached
+            return True, cache_entry
         
         return False, None
     
@@ -469,7 +468,7 @@ class CPUCSeleniumScraper:
             return documents
         
         st.info(f"📅 Found last {keyword_filter} on: {last_document_date.strftime('%B %d, %Y')}")
-        st.info(f"🛑 Will include the most recent {keyword_filter} and everything after it")
+        st.info(f"🛑 Will include documents UP TO AND INCLUDING the most recent {keyword_filter}")
         
         # Debug: Show all documents and their dates
         st.info(f"🔍 All {len(documents)} documents with dates:")
@@ -507,13 +506,15 @@ class CPUCSeleniumScraper:
                 filtered_documents.append(doc)
                 continue
             
-            # Include documents on or after the last occurrence of the target document type
-            if doc_date >= last_document_date:
+            # Include documents up to and including the last occurrence of the target document type
+            if doc_date <= last_document_date:
                 filtered_documents.append(doc)
+                st.write(f"  ✅ KEEPING: {doc.get('document_type', 'Unknown')} - {doc.get('filing_date', 'Unknown date')} (date: {doc_date.strftime('%B %d, %Y')})")
             else:
                 filtered_out_count += 1
+                st.write(f"  ❌ FILTERING OUT: {doc.get('document_type', 'Unknown')} - {doc.get('filing_date', 'Unknown date')} (date: {doc_date.strftime('%B %d, %Y')})")
         
-        st.info(f"🛑 Filtered out {filtered_out_count} documents before {last_document_date.strftime('%B %d, %Y')}")
+        st.info(f"🛑 Filtered out {filtered_out_count} documents after {last_document_date.strftime('%B %d, %Y')}")
         return filtered_documents
     
     def find_last_document_type_date(self, documents, document_type):
