@@ -50,10 +50,13 @@ class SmartQueryAgent:
         """Classify query type using LLM with stepback reasoning and document identification"""
         
         # Get available documents for analysis (filtered by proceeding if specified)
+        # Use a set to track unique documents to avoid duplicates from multiple chunks
+        seen_documents = set()
         available_docs = []
+        
         for doc in self.documents:
             source = doc.metadata.get('source', '')
-            if source in self.metadata:
+            if source in self.metadata and source not in seen_documents:
                 doc_meta = self.metadata[source]
                 
                 # Filter by proceeding if specified
@@ -73,6 +76,9 @@ class SmartQueryAgent:
                     'description': doc_meta.get('description', '')[:200] + '...' if len(doc_meta.get('description', '')) > 200 else doc_meta.get('description', ''),
                     'relationships': relationships
                 })
+                
+                # Mark this document as seen to avoid duplicates
+                seen_documents.add(source)
         
         
         # Step 1: Stepback reasoning with document analysis (include all documents but only metadata)
