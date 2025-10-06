@@ -627,10 +627,12 @@ class CPUCSeleniumScraper:
             documents.extend(page_documents)
             
             # Apply time filter if specified (keyword filter is now handled in get_documents_from_current_page)
-            # BUT ONLY if no keyword filter was applied (to avoid overriding keyword filtering)
+            # Time filter should be applied regardless of keyword filter to allow both filters to work together
             st.info(f"🔍 DEBUG: time_filter='{time_filter}', keyword_filter='{keyword_filter}'")
-            st.info(f"🔍 DEBUG: time_filter check: {bool(time_filter and time_filter != 'Whole docket' and not keyword_filter)}")
-            if time_filter and time_filter != "Whole docket" and not keyword_filter:
+            st.info(f"🔍 DEBUG: time_filter type: {type(time_filter)}")
+            st.info(f"🔍 DEBUG: time_filter check: {bool(time_filter and time_filter != 'Whole docket')}")
+            st.info(f"🔍 DEBUG: time_filter != 'Whole docket': {time_filter != 'Whole docket'}")
+            if time_filter and time_filter != "Whole docket":
                 st.info(f"🔍 Applying time filter: {time_filter}")
                 st.info(f"🔍 Starting with {len(documents)} documents before time filtering")
                 filtered_documents = []
@@ -732,6 +734,8 @@ class CPUCSeleniumScraper:
                 documents = filtered_documents
                 st.info(f"🛑 Time filter removed {filtered_out_count} documents")
                 st.info(f"📄 {len(documents)} documents remain after time filtering")
+            else:
+                st.info(f"🔍 DEBUG: Time filter NOT applied - time_filter='{time_filter}', condition={bool(time_filter and time_filter != 'Whole docket')}")
             
             # Note: Removed arbitrary document limit based on max_pages
             # Documents are now collected without artificial restrictions
