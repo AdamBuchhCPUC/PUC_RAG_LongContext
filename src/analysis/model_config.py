@@ -150,7 +150,7 @@ def get_chunking_strategy(model_name: str) -> Tuple[int, int]:
         # For GPT-5 with 256K context window, we can be much more aggressive
         if "gpt-5" in model_name.lower():
             # GPT-5: Context window is the limiting factor, not TPM
-            context_limit = 200000  # 200k tokens (80% of 256K context)
+            context_limit = int(limits.context_window * 0.8)  # Use actual context window
             tpm_limit = safe_tpm // 2  # TPM-based limit
             single_threshold_tokens = min(context_limit, tpm_limit)  # Use more restrictive
             max_section_tokens = min(100000, single_threshold_tokens // 2)
@@ -160,7 +160,7 @@ def get_chunking_strategy(model_name: str) -> Tuple[int, int]:
             max_section_tokens = min(25000, safe_tpm // 4)        # 25k tokens max
     elif limits.tpm >= 200000:  # High TPM models (GPT-3.5, GPT-4.1-mini, etc.)
         # High TPM models: Context window might be limiting
-        context_limit = 100000  # 100k tokens (reasonable context limit)
+        context_limit = int(limits.context_window * 0.8)  # Use actual context window
         tpm_limit = safe_tpm // 2  # TPM-based limit
         single_threshold_tokens = min(context_limit, tpm_limit)  # Use more restrictive
         max_section_tokens = min(50000, single_threshold_tokens // 2)
@@ -260,13 +260,8 @@ def get_effective_context_limit(model_name: str) -> int:
     """
     limits = get_model_limits(model_name)
     
-    # Context window limits
-    if "gpt-5" in model_name.lower():
-        context_limit = 200000  # 200k tokens
-    elif limits.tpm >= 200000:
-        context_limit = 100000  # 100k tokens
-    else:
-        context_limit = 50000   # 50k tokens
+    # Context window limits (use 80% of actual context window for safety)
+    context_limit = int(limits.context_window * 0.8)
     
     # TPM limits (more restrictive for some models)
     tpm_limit = int(limits.tpm * 0.8)  # 80% of TPM for safety
