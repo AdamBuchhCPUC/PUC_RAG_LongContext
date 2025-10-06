@@ -75,21 +75,15 @@ class SmartQueryAgent:
                 })
         
         
-        # Step 1: Stepback reasoning with document analysis (limit documents to avoid context length issues)
+        # Step 1: Stepback reasoning with document analysis (include all documents but only metadata)
         proceeding_context = f" (Proceeding: {proceeding})" if proceeding and proceeding != "All Proceedings" else ""
-        
-        # Limit documents to avoid context length issues - take most recent and most relevant
-        limited_docs = available_docs[:20]  # Limit to 20 most recent documents
-        if len(available_docs) > 20:
-            # Sort by filing date and take most recent
-            limited_docs = sorted(available_docs, key=lambda x: x.get('filing_date', ''), reverse=True)[:20]
         
         stepback_prompt = f"""Let's step back and think about this question at a higher level within the context of a specific CPUC proceeding{proceeding_context}:
 
 QUESTION: "{question}"
 
-AVAILABLE DOCUMENTS IN THIS PROCEEDING (showing {len(limited_docs)} of {len(available_docs)} total):
-{self._format_documents_for_analysis(limited_docs)}
+AVAILABLE DOCUMENTS IN THIS PROCEEDING ({len(available_docs)} total documents):
+{self._format_documents_for_analysis(available_docs)}
 
 Before classifying this question, let's consider:
 1. What is the user fundamentally trying to understand or accomplish within this CPUC proceeding?
@@ -1439,20 +1433,17 @@ Please provide a comprehensive answer based on the context. If the context doesn
             doc_type = doc.get('document_type', 'Unknown')
             filed_by = doc.get('filed_by', 'Unknown')
             filing_date = doc.get('filing_date', 'Unknown')
-            description = doc.get('description', 'No description')
             relationships = doc.get('relationships', {})
             
-            # Format relationships info
+            # Format relationships info concisely
             rel_info = ""
             if relationships:
                 doc_role = relationships.get('document_role', '')
-                response_type = relationships.get('response_type', '')
-                if doc_role or response_type:
-                    rel_info = f" (Role: {doc_role}, Response: {response_type})"
+                if doc_role:
+                    rel_info = f" [{doc_role}]"
             
+            # Keep it concise - just essential info
             formatted_docs.append(f"{i}. {doc_type} by {filed_by} ({filing_date}){rel_info}")
-            if description and description != 'No description':
-                formatted_docs.append(f"   Description: {description}")
         
         return "\n".join(formatted_docs)
     
