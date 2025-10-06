@@ -13,6 +13,7 @@ class ModelLimits:
     rpm: int  # Requests per minute
     rpd: int  # Requests per day
     tpd: int  # Tokens per day
+    context_window: int  # Maximum context window in tokens
     supports_batch: bool = False
     supports_flex: bool = False
     is_reasoning_model: bool = False  # Whether this is a reasoning model (o1, o3, etc.)
@@ -20,32 +21,32 @@ class ModelLimits:
 # Model configurations with TPM limits
 MODEL_LIMITS: Dict[str, ModelLimits] = {
     # GPT-3.5 Turbo models
-    "gpt-3.5-turbo": ModelLimits(2000000, 5000, 0, 20000000, supports_batch=True),
-    "gpt-3.5-turbo-0125": ModelLimits(2000000, 5000, 0, 20000000, supports_batch=True),
-    "gpt-3.5-turbo-1106": ModelLimits(2000000, 5000, 0, 20000000, supports_batch=True),
-    "gpt-3.5-turbo-16k": ModelLimits(2000000, 5000, 0, 20000000, supports_batch=True),
-    "gpt-3.5-turbo-instruct": ModelLimits(90000, 3500, 0, 200000, supports_batch=True),
-    "gpt-3.5-turbo-instruct-0914": ModelLimits(90000, 3500, 0, 200000, supports_batch=True),
+    "gpt-3.5-turbo": ModelLimits(2000000, 5000, 0, 20000000, 16384, supports_batch=True),
+    "gpt-3.5-turbo-0125": ModelLimits(2000000, 5000, 0, 20000000, 16384, supports_batch=True),
+    "gpt-3.5-turbo-1106": ModelLimits(2000000, 5000, 0, 20000000, 16384, supports_batch=True),
+    "gpt-3.5-turbo-16k": ModelLimits(2000000, 5000, 0, 20000000, 16384, supports_batch=True),
+    "gpt-3.5-turbo-instruct": ModelLimits(90000, 3500, 0, 200000, 4096, supports_batch=True),
+    "gpt-3.5-turbo-instruct-0914": ModelLimits(90000, 3500, 0, 200000, 4096, supports_batch=True),
     
     # GPT-4 models
-    "gpt-4": ModelLimits(40000, 5000, 0, 200000),
-    "gpt-4-0613": ModelLimits(40000, 5000, 0, 200000),
-    "gpt-4-turbo": ModelLimits(450000, 500, 0, 1350000),
-    "gpt-4-turbo-2024-04-09": ModelLimits(450000, 500, 0, 1350000),
-    "gpt-4-turbo-preview": ModelLimits(450000, 500, 0, 1350000),
-    "gpt-4-0125-preview": ModelLimits(450000, 500, 0, 1350000),
-    "gpt-4-1106-preview": ModelLimits(450000, 500, 0, 1350000),
+    "gpt-4": ModelLimits(40000, 5000, 0, 200000, 8192),
+    "gpt-4-0613": ModelLimits(40000, 5000, 0, 200000, 8192),
+    "gpt-4-turbo": ModelLimits(450000, 500, 0, 1350000, 128000),
+    "gpt-4-turbo-2024-04-09": ModelLimits(450000, 500, 0, 1350000, 128000),
+    "gpt-4-turbo-preview": ModelLimits(450000, 500, 0, 1350000, 128000),
+    "gpt-4-0125-preview": ModelLimits(450000, 500, 0, 1350000, 128000),
+    "gpt-4-1106-preview": ModelLimits(450000, 500, 0, 1350000, 128000),
     
     # GPT-4.1 models
-    "gpt-4.1-2025-04-14": ModelLimits(450000, 5000, 0, 1350000),
-    "gpt-4.1": ModelLimits(450000, 5000, 0, 1350000),
-    "gpt-4.1-long-context": ModelLimits(500000, 250, 0, 20000000, supports_flex=True),
-    "gpt-4.1-mini": ModelLimits(2000000, 5000, 0, 20000000, supports_batch=True),
-    "gpt-4.1-mini-2025-04-14": ModelLimits(2000000, 5000, 0, 20000000, supports_batch=True),
-    "gpt-4.1-mini-long-context": ModelLimits(1000000, 500, 0, 40000000, supports_flex=True),
-    "gpt-4.1-nano": ModelLimits(2000000, 5000, 0, 20000000, supports_batch=True),
-    "gpt-4.1-nano-2025-04-14": ModelLimits(2000000, 5000, 0, 20000000, supports_batch=True),
-    "gpt-4.1-nano-long-context": ModelLimits(1000000, 500, 0, 40000000, supports_flex=True),
+    "gpt-4.1-2025-04-14": ModelLimits(450000, 5000, 0, 1350000, 128000),
+    "gpt-4.1": ModelLimits(450000, 5000, 0, 1350000, 128000),
+    "gpt-4.1-long-context": ModelLimits(500000, 250, 0, 20000000, 1000000, supports_flex=True),
+    "gpt-4.1-mini": ModelLimits(2000000, 5000, 0, 20000000, 128000, supports_batch=True),
+    "gpt-4.1-mini-2025-04-14": ModelLimits(2000000, 5000, 0, 20000000, 128000, supports_batch=True),
+    "gpt-4.1-mini-long-context": ModelLimits(1000000, 500, 0, 40000000, 1000000, supports_flex=True),
+    "gpt-4.1-nano": ModelLimits(2000000, 5000, 0, 20000000, 128000, supports_batch=True),
+    "gpt-4.1-nano-2025-04-14": ModelLimits(2000000, 5000, 0, 20000000, 128000, supports_batch=True),
+    "gpt-4.1-nano-long-context": ModelLimits(1000000, 500, 0, 40000000, 1000000, supports_flex=True),
     
     # GPT-4o models
     "gpt-4o": ModelLimits(450000, 5000, 0, 1350000),
