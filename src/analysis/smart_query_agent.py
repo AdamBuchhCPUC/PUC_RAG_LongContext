@@ -191,7 +191,7 @@ Focus on the user's intent within the specific CPUC proceeding and identify whic
         st.info("🔄 **Processing Summary Request with Multi-Stage Approach**")
         
         # Step 1: Find document chains with classification guidance
-        document_chains = self._discover_document_chains(proceeding, classification)
+        document_chains = self._discover_document_chains(proceeding, classification, question)
         
         if not document_chains['originating_documents']:
             return {
@@ -204,8 +204,8 @@ Focus on the user's intent within the specific CPUC proceeding and identify whic
         # Step 2: Multi-stage summarization
         return self._multi_stage_summarization(question, document_chains, model)
     
-    def _discover_document_chains(self, proceeding: str, classification: Dict = None) -> Dict[str, Any]:
-        """Discover document chains in a proceeding"""
+    def _discover_document_chains(self, proceeding: str, classification: Dict = None, query: str = None) -> Dict[str, Any]:
+        """Discover document chains in a proceeding using pre-analyzed relationships and query-based selection"""
         # Removed verbose output
         
         # If proceeding is empty or "All Proceedings", use all documents
@@ -229,7 +229,21 @@ Focus on the user's intent within the specific CPUC proceeding and identify whic
                 for proc in sorted(proceedings):
                     st.write(f"  - {proc}")
         
-        # Find originating documents (motions, proposed decisions, scoping rulings, etc.)
+        # Step 1: Use pre-analyzed relationships from document processing
+        documents_with_relationships = []
+        for doc in proceeding_docs:
+            source = doc.metadata.get('source', '')
+            if source in self.metadata:
+                doc_meta = self.metadata[source]
+                # Check if this document has pre-analyzed relationships
+                if 'relationships' in doc_meta:
+                    documents_with_relationships.append({
+                        'document': doc,
+                        'metadata': doc_meta,
+                        'relationships': doc_meta['relationships']
+                    })
+        
+        # Step 2: Find originating documents using pre-analyzed relationships
         # Group chunks by source document to avoid duplicates
         source_documents = {}  # filename -> {metadata, chunks}
         originating_types = [
@@ -298,11 +312,41 @@ Focus on the user's intent within the specific CPUC proceeding and identify whic
                 'page_numbers': sorted(list(all_page_numbers))  # All page numbers for this document
             })
         
-        # Find response chains for each originating document
+        # Step 3: Build response chains using pre-analyzed relationships
         response_chains = {}
         for orig_doc in originating_documents:
-            responses = self.relationship_analyzer.find_responses_to_document(orig_doc['metadata'])
-            response_chains[orig_doc['metadata']['filename']] = responses
+            orig_filename = orig_doc['metadata']['filename']
+            responses = []
+            
+            # Use pre-analyzed relationships if available
+            if 'relationships' in orig_doc['metadata']:
+                rel_info = orig_doc['metadata']['relationships']
+                if rel_info.get('response_type') and rel_info.get('responding_to'):
+                    # Find documents that respond to this originating document
+                    for doc in proceeding_docs:
+                        source = doc.metadata.get('source', '')
+                        if source in self.metadata:
+                            doc_meta = self.metadata[source]
+                            if 'relationships' in doc_meta:
+                                doc_rel = doc_meta['relationships']
+                                if (doc_rel.get('responding_to') == orig_filename or 
+                                    orig_filename in doc_rel.get('responding_to', '')):
+                                    responses.append({
+                                        'document': doc,
+                                        'metadata': doc_meta,
+                                        'relationship_type': doc_rel.get('response_type', 'Unknown')
+                                    })
+            
+            # If no pre-analyzed relationships found, fall back to keyword analysis
+            if not responses:
+                responses = self.relationship_analyzer.find_responses_to_document(orig_doc['metadata'])
+            
+            response_chains[orig_filename] = responses
+        
+        # Step 4: Add query-based document selection for additional relevance
+        additional_relevant_docs = []
+        if query:
+            additional_relevant_docs = self._find_query_relevant_documents(query, proceeding_docs, classification)
         
         # Removed verbose output
         
@@ -332,13 +376,167 @@ Focus on the user's intent within the specific CPUC proceeding and identify whic
                             else:
                                 full_meta = doc_meta
                             st.write(f"  - {full_meta.get('document_type', 'Unknown')} by {full_meta.get('filed_by', 'Unknown')} ({full_meta.get('filing_date', 'Unknown')})")
+            
+            # List additional relevant documents
+            if additional_relevant_docs:
+                st.write(f"**Additional Query-Relevant Documents**: {len(additional_relevant_docs)}")
+                for i, doc in enumerate(additional_relevant_docs, 1):
+                    doc_meta = doc['document'].metadata
+                    if doc_meta.get('source', '') in self.metadata:
+                        full_meta = self.metadata[doc_meta.get('source', '')]
+                    else:
+                        full_meta = doc_meta
+                    st.write(f"{i}. **{full_meta.get('document_type', 'Unknown')}** by {full_meta.get('filed_by', 'Unknown')} ({full_meta.get('filing_date', 'Unknown')}) - {doc.get('relevance_reason', 'Query relevant')}")
         
         return {
             'originating_documents': originating_documents,
             'response_chains': response_chains,
+            'additional_relevant_docs': additional_relevant_docs,
             'total_documents': len(proceeding_docs),
-            'total_responses': total_responses
+            'total_responses': total_responses,
+            'total_additional': len(additional_relevant_docs)
         }
+    
+    def _find_query_relevant_documents(self, query: str, proceeding_docs: List[Document], classification: Dict = None) -> List[Dict]:
+        """Find additional documents relevant to the query using semantic and keyword matching"""
+        if not query:
+            return []
+        
+        relevant_docs = []
+        query_lower = query.lower()
+        
+        # Extract key terms from query for matching
+        query_terms = set()
+        for word in query_lower.split():
+            if len(word) > 3:  # Skip short words
+                query_terms.add(word)
+        
+        # Also extract potential document type keywords
+        doc_type_keywords = [
+            'motion', 'application', 'petition', 'complaint', 'protest', 'reply', 
+            'comment', 'brief', 'testimony', 'exhibit', 'response', 'objection',
+            'support', 'opposition', 'recommendation', 'proposal', 'amendment'
+        ]
+        
+        query_doc_types = [term for term in query_terms if term in doc_type_keywords]
+        
+        for doc in proceeding_docs:
+            source = doc.metadata.get('source', '')
+            if source in self.metadata:
+                doc_meta = self.metadata[source]
+                doc_type = doc_meta.get('document_type', '').lower()
+                description = doc_meta.get('description', '').lower()
+                filed_by = doc_meta.get('filed_by', '').lower()
+                
+                relevance_score = 0
+                relevance_reasons = []
+                
+                # Check for document type matches
+                for query_doc_type in query_doc_types:
+                    if query_doc_type in doc_type:
+                        relevance_score += 3
+                        relevance_reasons.append(f"Document type matches query: {query_doc_type}")
+                
+                # Check for keyword matches in description
+                description_matches = sum(1 for term in query_terms if term in description)
+                if description_matches > 0:
+                    relevance_score += description_matches
+                    relevance_reasons.append(f"Description contains {description_matches} query terms")
+                
+                # Check for party/filer matches
+                for term in query_terms:
+                    if term in filed_by:
+                        relevance_score += 2
+                        relevance_reasons.append(f"Filer matches query term: {term}")
+                
+                # Check for specific query patterns
+                if 'response' in query_lower and 'response' in doc_type:
+                    relevance_score += 2
+                    relevance_reasons.append("Query asks about responses")
+                elif 'comment' in query_lower and 'comment' in doc_type:
+                    relevance_score += 2
+                    relevance_reasons.append("Query asks about comments")
+                elif 'brief' in query_lower and 'brief' in doc_type:
+                    relevance_score += 2
+                    relevance_reasons.append("Query asks about briefs")
+                
+                # Only include documents with meaningful relevance
+                if relevance_score >= 2:
+                    relevant_docs.append({
+                        'document': doc,
+                        'metadata': doc_meta,
+                        'relevance_score': relevance_score,
+                        'relevance_reason': '; '.join(relevance_reasons)
+                    })
+        
+        # Sort by relevance score and return top documents
+        relevant_docs.sort(key=lambda x: x['relevance_score'], reverse=True)
+        return relevant_docs[:10]  # Limit to top 10 additional relevant documents
+    
+    def _summarize_additional_documents(self, additional_docs: List[Dict], model: str) -> List[Dict]:
+        """Summarize additional relevant documents"""
+        if not additional_docs:
+            return []
+        
+        summaries = []
+        
+        for doc_info in additional_docs:
+            doc = doc_info['document']
+            metadata = doc_info['metadata']
+            relevance_reason = doc_info.get('relevance_reason', 'Query relevant')
+            
+            # Create summary prompt
+            summary_prompt = f"""
+            Summarize this document focusing on its relevance to the query context.
+            
+            Document Type: {metadata.get('document_type', 'Unknown')}
+            Filed By: {metadata.get('filed_by', 'Unknown')}
+            Filing Date: {metadata.get('filing_date', 'Unknown')}
+            Relevance Reason: {relevance_reason}
+            
+            Document Content:
+            {doc.page_content[:4000]}  # Limit content to avoid token limits
+            
+            Provide a concise summary highlighting:
+            1. Key points and arguments
+            2. How it relates to the query context
+            3. Important details or evidence
+            4. Any notable positions or recommendations
+            
+            Keep the summary focused and under 300 words.
+            """
+            
+            try:
+                from src.utils.llm_utils import make_openai_call, calculate_cost
+                
+                response, usage = make_openai_call(
+                    prompt=summary_prompt,
+                    model=model,
+                    max_tokens=400,
+                    temperature=0.3,
+                    return_usage=True
+                )
+                
+                # Track costs
+                if usage:
+                    cost = calculate_cost(usage.get('prompt_tokens', 0), usage.get('completion_tokens', 0), model)
+                    self._track_cost('stage_3', cost)
+                
+                summaries.append({
+                    'document_type': metadata.get('document_type', 'Unknown'),
+                    'filed_by': metadata.get('filed_by', 'Unknown'),
+                    'filing_date': metadata.get('filing_date', 'Unknown'),
+                    'relevance_reason': relevance_reason,
+                    'summary': response.strip(),
+                    'source': metadata.get('filename', 'Unknown'),
+                    'page_numbers': doc.metadata.get('page_numbers', [])
+                })
+                
+            except Exception as e:
+                st.warning(f"⚠️ Error summarizing additional document {metadata.get('filename', 'Unknown')}: {e}")
+                continue
+        
+        return summaries
     
     def _multi_stage_summarization(self, question: str, document_chains: Dict, model: str) -> Dict[str, Any]:
         """Multi-stage summarization with detailed extraction and page citations"""
@@ -349,8 +547,9 @@ Focus on the user's intent within the specific CPUC proceeding and identify whic
             st.write(f"**Question**: {question}")
             st.write(f"**Originating Documents to Summarize**: {len(document_chains['originating_documents'])}")
             st.write(f"**Response Documents to Summarize**: {document_chains.get('total_responses', 0)}")
+            st.write(f"**Additional Relevant Documents**: {document_chains.get('total_additional', 0)}")
             st.write(f"**Model Used**: {model}")
-            st.write("**Process**: 1) Summarize originating documents → 2) Summarize responses → 3) Comparative analysis → 4) Overall synthesis")
+            st.write("**Process**: 1) Summarize originating documents → 2) Summarize responses → 3) Summarize additional relevant docs → 4) Comparative analysis → 5) Overall synthesis")
         
         processing_stages = []
         all_summaries = []
@@ -413,52 +612,83 @@ Focus on the user's intent within the specific CPUC proceeding and identify whic
         all_summaries.extend(response_summaries)
         stage_outputs['stage_2'] = response_summaries
         
-        # Stage 3: Comparative analysis
-        st.write("**Stage 3: Comparative Analysis**")
+        # Stage 3: Summarize additional relevant documents
+        additional_summaries = []
+        if document_chains.get('additional_relevant_docs'):
+            st.write("**Stage 3: Additional Relevant Document Summaries**")
+            additional_summaries = self._summarize_additional_documents(
+                document_chains['additional_relevant_docs'], model
+            )
+            
+            # Display Stage 3 results in expandable section
+            with st.expander(f"📋 **Stage 3 Results: Additional Relevant Document Summaries** (Model: {model})", expanded=False):
+                st.write(f"**Documents Processed**: {len(additional_summaries)}")
+                st.write(f"**Model Used**: {model}")
+                st.write(f"**Cost**: ${self.cost_tracker['stage_costs'].get('stage_3', 0):.4f}")
+                
+                for i, summary in enumerate(additional_summaries, 1):
+                    st.write(f"**{i}. {summary['document_type']} by {summary['filed_by']}**")
+                    st.write(f"*Relevance: {summary['relevance_reason']}*")
+                    st.write(summary['summary'])
+                    st.divider()
+            
+            processing_stages.append({
+                'stage': 3,
+                'description': 'Additional Relevant Document Summaries',
+                'documents_processed': len(additional_summaries),
+                'cost': self.cost_tracker['stage_costs'].get('stage_3', 0),
+                'model': model,
+                'output': additional_summaries
+            })
+            all_summaries.extend(additional_summaries)
+            stage_outputs['stage_3'] = additional_summaries
+        
+        # Stage 4: Comparative analysis
+        st.write("**Stage 4: Comparative Analysis**")
         comparative_analysis = self._create_comparative_analysis(
             document_chains, model
         )
         
-        # Display Stage 3 results in expandable section
-        with st.expander(f"🔍 **Stage 3 Results: Comparative Analysis** (Model: {model})", expanded=False):
+        # Display Stage 4 results in expandable section
+        with st.expander(f"🔍 **Stage 4 Results: Comparative Analysis** (Model: {model})", expanded=False):
             st.write(f"**Model Used**: {model}")
-            st.write(f"**Cost**: ${self.cost_tracker['stage_costs'].get('stage_3', 0):.4f}")
+            st.write(f"**Cost**: ${self.cost_tracker['stage_costs'].get('stage_4', 0):.4f}")
             st.write("**Comparative Analysis:**")
             st.write(comparative_analysis)
         
         processing_stages.append({
-            'stage': 3,
+            'stage': 4,
             'description': 'Comparative Analysis',
             'analysis_created': True,
-            'cost': self.cost_tracker['stage_costs'].get('stage_3', 0),
+            'cost': self.cost_tracker['stage_costs'].get('stage_4', 0),
             'model': model,
             'output': comparative_analysis
         })
         all_summaries.append({'type': 'comparative_analysis', 'content': comparative_analysis})
-        stage_outputs['stage_3'] = comparative_analysis
+        stage_outputs['stage_4'] = comparative_analysis
         
-        # Stage 4: Overall synthesis
-        st.write("**Stage 4: Overall Synthesis**")
+        # Stage 5: Overall synthesis
+        st.write("**Stage 5: Overall Synthesis**")
         final_synthesis = self._create_overall_synthesis(
             question, all_summaries, model
         )
         
-        # Display Stage 4 results in expandable section
-        with st.expander(f"🎯 **Stage 4 Results: Overall Synthesis** (Model: {model})", expanded=False):
+        # Display Stage 5 results in expandable section
+        with st.expander(f"🎯 **Stage 5 Results: Overall Synthesis** (Model: {model})", expanded=False):
             st.write(f"**Model Used**: {model}")
-            st.write(f"**Cost**: ${self.cost_tracker['stage_costs'].get('stage_4', 0):.4f}")
+            st.write(f"**Cost**: ${self.cost_tracker['stage_costs'].get('stage_5', 0):.4f}")
             st.write("**Final Synthesis:**")
             st.write(final_synthesis)
         
         processing_stages.append({
-            'stage': 4,
+            'stage': 5,
             'description': 'Overall Synthesis',
             'synthesis_created': True,
-            'cost': self.cost_tracker['stage_costs'].get('stage_4', 0),
+            'cost': self.cost_tracker['stage_costs'].get('stage_5', 0),
             'model': model,
             'output': final_synthesis
         })
-        stage_outputs['stage_4'] = final_synthesis
+        stage_outputs['stage_5'] = final_synthesis
         
         # Display overall processing summary
         with st.expander("📊 **Processing Summary**", expanded=True):
