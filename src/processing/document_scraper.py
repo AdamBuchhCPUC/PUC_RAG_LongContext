@@ -317,11 +317,8 @@ class CPUCSeleniumScraper:
     
     def navigate_to_documents(self, proceeding_number):
         """Navigate to the documents tab with improved error handling"""
-        st.info(f"🔍 [navigate_to_documents] Starting navigation for proceeding {proceeding_number}")
         try:
             # First try to click on the Documents tab instead of direct navigation
-            st.info("🔍 Attempting to click on Documents tab...")
-            
             # Look for the Documents tab link
             documents_tab = self.driver.find_element(By.XPATH, "//a[contains(@href, 'f?p=401:57')]")
             if documents_tab:
@@ -389,7 +386,6 @@ class CPUCSeleniumScraper:
     
     def get_documents_from_current_page(self, filter_intervenor_comp=True, keyword_filter=None):
         """Extract documents from the currently displayed page using the same approach as rag_test.py"""
-        st.info(f"🔍 [get_documents_from_current_page] Starting with filter_intervenor_comp={filter_intervenor_comp}, keyword_filter={keyword_filter}")
         documents = []
         
         try:
@@ -445,36 +441,12 @@ class CPUCSeleniumScraper:
             
             # Apply keyword filter if specified
             if keyword_filter and keyword_filter in ["PROPOSED DECISION", "SCOPING RULING", "SCOPING MEMO", "DECISION", "RULING"]:
-                st.info(f"🔍 [get_documents_from_current_page] Applying keyword filter: {keyword_filter}")
-                st.info(f"📄 [get_documents_from_current_page] Starting with {len(documents)} documents")
-                st.info(f"🔍 [get_documents_from_current_page] Calling _apply_keyword_filter")
+                st.info(f"🔍 Applying keyword filter: {keyword_filter}")
                 filtered_documents = self._apply_keyword_filter(documents, keyword_filter)
-                st.info(f"📄 [get_documents_from_current_page] _apply_keyword_filter returned {len(filtered_documents)} documents (was {len(documents)})")
                 
-                # Debug: Show what documents are being kept
+                # Show summary of filtered documents
                 if len(filtered_documents) > 0:
-                    st.info(f"🔍 All {len(filtered_documents)} documents after filtering:")
-                    
-                    # Create a detailed table
-                    import pandas as pd
-                    
-                    # Prepare data for the table
-                    table_data = []
-                    for i, doc in enumerate(filtered_documents):
-                        table_data.append({
-                            'Index': i + 1,
-                            'Document Type': doc.get('document_type', 'Unknown'),
-                            'Filing Date': doc.get('filing_date', 'Unknown date'),
-                            'Filed By': doc.get('filed_by', 'Unknown'),
-                            'Description': doc.get('description', 'No description')[:50] + '...' if len(doc.get('description', '')) > 50 else doc.get('description', 'No description')
-                        })
-                    
-                    # Create and display the table
-                    df = pd.DataFrame(table_data)
-                    st.dataframe(df, use_container_width=True)
-                    
-                    # Also show a summary
-                    st.info(f"📊 Summary: {len(filtered_documents)} documents will be downloaded")
+                    st.info(f"📊 {len(filtered_documents)} documents will be downloaded after keyword filtering")
                 
                 return filtered_documents
             
@@ -485,13 +457,10 @@ class CPUCSeleniumScraper:
     
     def _apply_keyword_filter(self, documents, keyword_filter):
         """Apply keyword filter to documents - include target document type and everything after it"""
-        st.info(f"🔍 [_apply_keyword_filter] Starting with {len(documents)} documents, looking for '{keyword_filter}'")
         from datetime import datetime
         
         # Find the last occurrence of the target document type
-        st.info(f"🔍 [_apply_keyword_filter] Calling find_last_document_type_date for '{keyword_filter}'")
         last_document_date = self.find_last_document_type_date(documents, keyword_filter)
-        st.info(f"🔍 [_apply_keyword_filter] find_last_document_type_date returned: {last_document_date}")
         
         if not last_document_date:
             st.warning(f"⚠️ No {keyword_filter} found in documents. Using all documents.")
@@ -499,27 +468,6 @@ class CPUCSeleniumScraper:
         
         st.info(f"📅 Found last {keyword_filter} on: {last_document_date.strftime('%B %d, %Y')}")
         st.info(f"🛑 Will include documents AFTER and INCLUDING the most recent {keyword_filter}")
-        
-        # Debug: Show all documents and their dates
-        st.info(f"🔍 All {len(documents)} documents before filtering:")
-        
-        # Create a table of all documents
-        import pandas as pd
-        
-        # Prepare data for the table
-        table_data = []
-        for i, doc in enumerate(documents):
-            table_data.append({
-                'Index': i + 1,
-                'Document Type': doc.get('document_type', 'Unknown'),
-                'Filing Date': doc.get('filing_date', 'Unknown date'),
-                'Filed By': doc.get('filed_by', 'Unknown'),
-                'Description': doc.get('description', 'No description')[:50] + '...' if len(doc.get('description', '')) > 50 else doc.get('description', 'No description')
-            })
-        
-        # Create and display the table
-        df = pd.DataFrame(table_data)
-        st.dataframe(df, use_container_width=True)
         
         filtered_documents = []
         filtered_out_count = 0
@@ -553,35 +501,21 @@ class CPUCSeleniumScraper:
             # Include documents AFTER and INCLUDING the last occurrence of the target document type
             if doc_date >= last_document_date:
                 filtered_documents.append(doc)
-                st.write(f"  ✅ KEEPING: {doc.get('document_type', 'Unknown')} - {doc.get('filing_date', 'Unknown date')} (date: {doc_date.strftime('%B %d, %Y')})")
             else:
                 filtered_out_count += 1
-                st.write(f"  ❌ FILTERING OUT: {doc.get('document_type', 'Unknown')} - {doc.get('filing_date', 'Unknown date')} (date: {doc_date.strftime('%B %d, %Y')})")
         
         st.info(f"🛑 Filtered out {filtered_out_count} documents before {last_document_date.strftime('%B %d, %Y')}")
         return filtered_documents
     
     def find_last_document_type_date(self, documents, document_type):
         """Find the date of the most recent document of a specific type"""
-        st.info(f"🔍 [find_last_document_type_date] Starting with {len(documents)} documents, looking for '{document_type}'")
         from datetime import datetime
         
-        # Debug: Show all document types found
-        st.info(f"🔍 Looking for document type: '{document_type}'")
-        st.info(f"🔍 All document types found in the documents:")
-        document_types = set()
-        for doc in documents:
-            doc_type = doc.get('document_type', 'Unknown')
-            document_types.add(doc_type)
-        
-        for doc_type in sorted(document_types):
-            st.write(f"  - '{doc_type}'")
         
         document_dates = []
         
         for doc in documents:
             doc_type = doc.get('document_type', '')
-            st.info(f"🔍 [find_last_document_type_date] Checking document type: '{doc_type}' == '{document_type}'? {doc_type.upper() == document_type.upper()}")
             if doc_type.upper() == document_type.upper():
                 filing_date_str = doc['filing_date'].strip()
                 
@@ -611,7 +545,6 @@ class CPUCSeleniumScraper:
 
     def get_all_documents(self, proceeding_number, max_pages=None, time_filter=None, keyword_filter=None, filter_intervenor_comp=True):
         """Get all documents for a proceeding using the same approach as rag_test.py"""
-        st.info(f"🔍 [get_all_documents] Starting with proceeding={proceeding_number}, max_pages={max_pages}, time_filter={time_filter}, keyword_filter={keyword_filter}")
         from datetime import datetime, timedelta
         documents = []
         
@@ -621,22 +554,13 @@ class CPUCSeleniumScraper:
                 return documents
             
             # Get documents from current page
-            st.info(f"🔍 [get_all_documents] Calling get_documents_from_current_page with filter_intervenor_comp={filter_intervenor_comp}, keyword_filter={keyword_filter}")
             page_documents = self.get_documents_from_current_page(filter_intervenor_comp, keyword_filter)
-            st.info(f"🔍 [get_all_documents] get_documents_from_current_page returned {len(page_documents)} documents")
             documents.extend(page_documents)
             
             # Apply time filter if specified (keyword filter is now handled in get_documents_from_current_page)
             # Time filter should be applied regardless of keyword filter to allow both filters to work together
-            st.info(f"🔍 DEBUG: time_filter='{time_filter}', keyword_filter='{keyword_filter}'")
-            st.info(f"🔍 DEBUG: time_filter type: {type(time_filter)}")
-            st.info(f"🔍 DEBUG: time_filter repr: {repr(time_filter)}")
-            st.info(f"🔍 DEBUG: time_filter length: {len(time_filter) if time_filter else 'None'}")
-            st.info(f"🔍 DEBUG: time_filter != 'Whole docket': {time_filter != 'Whole docket'}")
-            st.info(f"🔍 DEBUG: time_filter check: {bool(time_filter and time_filter != 'Whole docket')}")
             if time_filter and time_filter != "Whole docket":
                 st.info(f"🔍 Applying time filter: {time_filter}")
-                st.info(f"🔍 Starting with {len(documents)} documents before time filtering")
                 filtered_documents = []
                 filtered_out_count = 0
                 
@@ -671,58 +595,39 @@ class CPUCSeleniumScraper:
                             else:
                                 # Apply time filter based on the parsed date
                                 days_ago = (datetime.now() - doc_date).days
-                                st.info(f"🔍 Document date: {doc_date.strftime('%B %d, %Y')} ({days_ago} days ago)")
                                 
                                 if time_filter == "Last 30 days" and days_ago > 30:
                                     include_doc = False
-                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (too old: {days_ago} days)")
                                 elif time_filter == "Last 60 days" and days_ago > 60:
                                     include_doc = False
-                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (too old: {days_ago} days)")
                                 elif time_filter == "Last 90 days" and days_ago > 90:
                                     include_doc = False
-                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (too old: {days_ago} days)")
                                 elif time_filter == "Last 180 days" and days_ago > 180:
                                     include_doc = False
-                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (too old: {days_ago} days)")
                                 elif time_filter == "Last 12 months" and days_ago > 365:
                                     include_doc = False
-                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (too old: {days_ago} days)")
                                 elif time_filter == "Since 2020" and doc_date.year < 2020:
                                     include_doc = False
-                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
                                 elif time_filter == "Since 2019" and doc_date.year < 2019:
                                     include_doc = False
-                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
                                 elif time_filter == "Since 2018" and doc_date.year < 2018:
                                     include_doc = False
-                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
                                 elif time_filter == "Since 2017" and doc_date.year < 2017:
                                     include_doc = False
-                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
                                 elif time_filter == "Since 2016" and doc_date.year < 2016:
                                     include_doc = False
-                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
                                 elif time_filter == "Since 2015" and doc_date.year < 2015:
                                     include_doc = False
-                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
                                 elif time_filter == "Since 2014" and doc_date.year < 2014:
                                     include_doc = False
-                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
                                 elif time_filter == "Since 2013" and doc_date.year < 2013:
                                     include_doc = False
-                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
                                 elif time_filter == "Since 2012" and doc_date.year < 2012:
                                     include_doc = False
-                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
                                 elif time_filter == "Since 2011" and doc_date.year < 2011:
                                     include_doc = False
-                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
                                 elif time_filter == "Since 2010" and doc_date.year < 2010:
                                     include_doc = False
-                                    st.info(f"❌ FILTERED OUT: {doc.get('document_type', 'Unknown')} - {filing_date_str} (year: {doc_date.year})")
-                                else:
-                                    st.info(f"✅ KEEPING: {doc.get('document_type', 'Unknown')} - {filing_date_str} (within time range)")
                         except Exception as e:
                             st.warning(f"⚠️ Error processing date for {doc.get('document_type', 'Unknown')}: {e}")
                             # If there's an error, include the document
@@ -736,12 +641,9 @@ class CPUCSeleniumScraper:
                 documents = filtered_documents
                 st.info(f"🛑 Time filter removed {filtered_out_count} documents")
                 st.info(f"📄 {len(documents)} documents remain after time filtering")
-            else:
-                st.info(f"🔍 DEBUG: Time filter NOT applied - time_filter='{time_filter}', condition={bool(time_filter and time_filter != 'Whole docket')}")
             
             # Note: Removed arbitrary document limit based on max_pages
             # Documents are now collected without artificial restrictions
-            st.info(f"📄 Found {len(documents)} documents (no artificial limit applied)")
                 
         except Exception as e:
             st.error(f"Error scraping documents: {e}")
@@ -750,7 +652,6 @@ class CPUCSeleniumScraper:
     
     def scrape_proceeding(self, proceeding_number, time_filter="Whole docket", keyword_filter="None", max_pages=10):
         """Scrape a CPUC proceeding for documents using the full CPUC docket system"""
-        st.info(f"🔍 [scrape_proceeding] Starting with proceeding={proceeding_number}, time_filter={time_filter}, keyword_filter={keyword_filter}, max_pages={max_pages}")
         try:
             # Validate proceeding first
             is_valid, message = self.validate_proceeding_number(proceeding_number)
@@ -766,7 +667,6 @@ class CPUCSeleniumScraper:
                 return 0
             
             # Get all documents with proper filtering and pagination
-            st.info(f"🔍 [scrape_proceeding] Calling get_all_documents with max_pages={max_pages}, time_filter={time_filter}, keyword_filter={keyword_filter}")
             all_documents = self.get_all_documents(proceeding_number, max_pages, time_filter, keyword_filter)
             
             if not all_documents:
@@ -776,9 +676,7 @@ class CPUCSeleniumScraper:
             st.info(f"📄 Found {len(all_documents)} documents")
             
             # Download documents
-            st.info(f"🔍 [scrape_proceeding] Calling _download_documents with {len(all_documents)} documents")
             downloaded_count = self._download_documents(all_documents, proceeding_number)
-            st.info(f"🔍 [scrape_proceeding] _download_documents returned {downloaded_count} downloaded documents")
             return downloaded_count
                 
         except Exception as e:
@@ -817,8 +715,7 @@ class CPUCSeleniumScraper:
     
     def _download_documents(self, documents, proceeding_number):
         """Download documents to the documents folder with full metadata"""
-        st.info("🔍 USING _DOWNLOAD_DOCUMENTS")
-        st.info(f"🔍 [_download_documents] Starting with {len(documents)} documents for proceeding {proceeding_number}")
+        st.info(f"🔍 Starting download of {len(documents)} documents for proceeding {proceeding_number}")
         documents_folder = Path("./documents")
         documents_folder.mkdir(exist_ok=True)
         
