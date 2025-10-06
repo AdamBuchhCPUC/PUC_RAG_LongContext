@@ -75,14 +75,21 @@ class SmartQueryAgent:
                 })
         
         
-        # Step 1: Stepback reasoning with document analysis
+        # Step 1: Stepback reasoning with document analysis (limit documents to avoid context length issues)
         proceeding_context = f" (Proceeding: {proceeding})" if proceeding and proceeding != "All Proceedings" else ""
+        
+        # Limit documents to avoid context length issues - take most recent and most relevant
+        limited_docs = available_docs[:20]  # Limit to 20 most recent documents
+        if len(available_docs) > 20:
+            # Sort by filing date and take most recent
+            limited_docs = sorted(available_docs, key=lambda x: x.get('filing_date', ''), reverse=True)[:20]
+        
         stepback_prompt = f"""Let's step back and think about this question at a higher level within the context of a specific CPUC proceeding{proceeding_context}:
 
 QUESTION: "{question}"
 
-AVAILABLE DOCUMENTS IN THIS PROCEEDING:
-{self._format_documents_for_analysis(available_docs)}
+AVAILABLE DOCUMENTS IN THIS PROCEEDING (showing {len(limited_docs)} of {len(available_docs)} total):
+{self._format_documents_for_analysis(limited_docs)}
 
 Before classifying this question, let's consider:
 1. What is the user fundamentally trying to understand or accomplish within this CPUC proceeding?
@@ -503,7 +510,7 @@ Focus on the user's intent within the specific CPUC proceeding and identify whic
             3. Important details or evidence
             4. Any notable positions or recommendations
             
-            Keep the summary focused and under 300 words.
+            Keep the summary focused and under 500 words.
             """
             
             try:
@@ -1421,6 +1428,33 @@ Please provide a comprehensive answer based on the context. If the context doesn
                 'processing_stages': [{'stage': 'priority_search', 'description': 'Error in priority search'}],
                 'cost_breakdown': self.cost_tracker
             }
+    
+    def _format_documents_for_analysis(self, documents: List[Dict]) -> str:
+        """Format documents for analysis in a concise way"""
+        if not documents:
+            return "No documents available"
+        
+        formatted_docs = []
+        for i, doc in enumerate(documents, 1):
+            doc_type = doc.get('document_type', 'Unknown')
+            filed_by = doc.get('filed_by', 'Unknown')
+            filing_date = doc.get('filing_date', 'Unknown')
+            description = doc.get('description', 'No description')
+            relationships = doc.get('relationships', {})
+            
+            # Format relationships info
+            rel_info = ""
+            if relationships:
+                doc_role = relationships.get('document_role', '')
+                response_type = relationships.get('response_type', '')
+                if doc_role or response_type:
+                    rel_info = f" (Role: {doc_role}, Response: {response_type})"
+            
+            formatted_docs.append(f"{i}. {doc_type} by {filed_by} ({filing_date}){rel_info}")
+            if description and description != 'No description':
+                formatted_docs.append(f"   Description: {description}")
+        
+        return "\n".join(formatted_docs)
     
     def _process_factual_query(self, question: str, proceeding: str, model: str, classification: Dict) -> Dict[str, Any]:
         """Process factual queries using vector/BM25 search with dynamic context management"""
