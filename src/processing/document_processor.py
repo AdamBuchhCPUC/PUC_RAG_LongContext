@@ -339,6 +339,23 @@ class DocumentProcessor:
                     
                 st.write(f"🔍 Analyzing relationships for proceeding {proceeding} ({len(proceeding_docs)} documents)")
                 
+                # Debug: Show all documents being analyzed
+                with st.expander(f"📋 **Documents Being Analyzed for {proceeding}**", expanded=False):
+                    import pandas as pd
+                    debug_data = []
+                    for filename, doc_metadata in proceeding_docs:
+                        debug_data.append({
+                            'Filename': filename,
+                            'Document Type': doc_metadata.get('document_type', 'Unknown'),
+                            'Filed By': doc_metadata.get('filed_by', 'Unknown'),
+                            'Filing Date': doc_metadata.get('filing_date', 'Unknown'),
+                            'Description': doc_metadata.get('description', 'No description')[:100] + '...' if len(doc_metadata.get('description', '')) > 100 else doc_metadata.get('description', 'No description')
+                        })
+                    
+                    if debug_data:
+                        df = pd.DataFrame(debug_data)
+                        st.dataframe(df, use_container_width=True)
+                
                 # Create a formatted list of all documents for the LLM to analyze
                 documents_list = []
                 for filename, doc_metadata in proceeding_docs:
@@ -411,6 +428,22 @@ JSON:"""
                         proceeding_relationships = json.loads(response_text)
                         all_relationships.update(proceeding_relationships)
                         st.success(f"✅ Analyzed relationships for {len(proceeding_relationships)} documents in proceeding {proceeding}")
+                        
+                        # Debug: Show relationship analysis results
+                        with st.expander(f"🔍 **Relationship Analysis Results for {proceeding}**", expanded=False):
+                            relationship_data = []
+                            for filename, rel_info in proceeding_relationships.items():
+                                relationship_data.append({
+                                    'Filename': filename,
+                                    'Document Role': rel_info.get('document_role', 'Unknown'),
+                                    'Response Type': rel_info.get('response_type', 'N/A'),
+                                    'Responding To': rel_info.get('responding_to', 'N/A'),
+                                    'Filing Timing': rel_info.get('filing_timing', 'Unknown')
+                                })
+                            
+                            if relationship_data:
+                                df = pd.DataFrame(relationship_data)
+                                st.dataframe(df, use_container_width=True)
                     else:
                         st.warning(f"⚠️ Invalid JSON format for proceeding {proceeding}. Response: {response_text[:200]}...")
                         continue

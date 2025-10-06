@@ -299,7 +299,6 @@ class CPUCSeleniumScraper:
                         st.success(f"✅ Proceeding {proceeding_number} validated successfully (found {len(document_links)} document links)")
                         return True, "Valid with documents"
                     else:
-                        st.warning(f"⚠️ Proceeding {proceeding_number} exists but no documents found yet")
                         return True, "Valid but no documents"
                         
                 except Exception as e:
@@ -322,7 +321,6 @@ class CPUCSeleniumScraper:
             # Look for the Documents tab link
             documents_tab = self.driver.find_element(By.XPATH, "//a[contains(@href, 'f?p=401:57')]")
             if documents_tab:
-                st.info("✅ Found Documents tab, clicking...")
                 documents_tab.click()
                 
                 # Wait for page to load
@@ -330,7 +328,6 @@ class CPUCSeleniumScraper:
                     lambda driver: driver.execute_script("return document.readyState") == "complete"
                 )
                 
-                st.info("✅ Documents page loaded")
                 return True
                 
         except Exception as e:
