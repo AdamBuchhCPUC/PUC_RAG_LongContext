@@ -630,8 +630,10 @@ class CPUCSeleniumScraper:
             # Time filter should be applied regardless of keyword filter to allow both filters to work together
             st.info(f"🔍 DEBUG: time_filter='{time_filter}', keyword_filter='{keyword_filter}'")
             st.info(f"🔍 DEBUG: time_filter type: {type(time_filter)}")
-            st.info(f"🔍 DEBUG: time_filter check: {bool(time_filter and time_filter != 'Whole docket')}")
+            st.info(f"🔍 DEBUG: time_filter repr: {repr(time_filter)}")
+            st.info(f"🔍 DEBUG: time_filter length: {len(time_filter) if time_filter else 'None'}")
             st.info(f"🔍 DEBUG: time_filter != 'Whole docket': {time_filter != 'Whole docket'}")
+            st.info(f"🔍 DEBUG: time_filter check: {bool(time_filter and time_filter != 'Whole docket')}")
             if time_filter and time_filter != "Whole docket":
                 st.info(f"🔍 Applying time filter: {time_filter}")
                 st.info(f"🔍 Starting with {len(documents)} documents before time filtering")
