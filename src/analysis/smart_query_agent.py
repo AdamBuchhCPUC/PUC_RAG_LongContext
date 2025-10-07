@@ -212,154 +212,118 @@ Focus on the user's intent within the specific CPUC proceeding and identify whic
         return self._multi_stage_summarization(question, document_chains, model)
     
     def _discover_document_chains(self, proceeding: str, classification: Dict = None, query: str = None) -> Dict[str, Any]:
-        """Discover document chains in a proceeding using pre-analyzed relationships and query-based selection"""
-        # Removed verbose output
+        """Discover document chains at document level using pre-analyzed relationships"""
         
-        # If proceeding is empty or "All Proceedings", use all documents
-        # Otherwise, documents should already be filtered by the UI
-        if not proceeding or proceeding == "All Proceedings":
-            proceeding_docs = self.documents
-            # Removed verbose output
-        else:
-            # Double-check filtering by proceeding (in case documents weren't pre-filtered)
-            proceeding_docs = [doc for doc in self.documents 
-                             if doc.metadata.get('proceeding', '') == proceeding]
-            # Removed verbose output
-            
-            # Debug: Show what proceedings are actually in the documents
-            if len(proceeding_docs) == 0:
-                st.warning("⚠️ No documents found for this proceeding. Available proceedings:")
-                proceedings = set()
-                for doc in self.documents:
-                    proc = doc.metadata.get('proceeding', 'No proceeding')
-                    proceedings.add(proc)
-                for proc in sorted(proceedings):
-                    st.write(f"  - {proc}")
+        # Get unique documents (not chunks) for this proceeding
+        unique_documents = {}  # filename -> document metadata
         
-        # Step 1: Use pre-analyzed relationships from document processing
-        documents_with_relationships = []
-        for doc in proceeding_docs:
+        # Collect unique documents from chunks
+        for doc in self.documents:
             source = doc.metadata.get('source', '')
             if source in self.metadata:
                 doc_meta = self.metadata[source]
-                # Check if this document has pre-analyzed relationships
-                if 'relationships' in doc_meta:
-                    documents_with_relationships.append({
-                        'document': doc,
-                        'metadata': doc_meta,
-                        'relationships': doc_meta['relationships']
-                    })
+                
+                # Filter by proceeding if specified
+                if proceeding and proceeding != "All Proceedings":
+                    doc_proceeding = doc_meta.get('proceeding', '')
+                    if doc_proceeding != proceeding:
+                        continue
+                
+                # Store unique document metadata
+                if source not in unique_documents:
+                    unique_documents[source] = doc_meta
         
-        # Step 2: Find originating documents using pre-analyzed relationships
-        # Group chunks by source document to avoid duplicates
-        source_documents = {}  # filename -> {metadata, chunks}
+        if not unique_documents:
+            st.warning("⚠️ No documents found for this proceeding.")
+            return {
+                'originating_documents': [],
+                'response_chains': {},
+                'additional_relevant_docs': [],
+                'total_documents': 0,
+                'total_responses': 0,
+                'total_additional': 0
+            }
+        
+        # Step 1: Find originating documents using document metadata
+        originating_documents = []
         originating_types = [
             'motion', 'proposed decision', 'scoping ruling', 'scoping memo', 
             'decision', 'ruling', 'order', 'application', 'petition'
         ]
         
-        # Group chunks by source document
-        for doc in proceeding_docs:
-            source = doc.metadata.get('source', '')
-            if source in self.metadata:
-                doc_meta = self.metadata[source]
-                doc_type = doc_meta.get('document_type', '').lower()
-                
-                if any(orig_type in doc_type for orig_type in originating_types):
-                    if source not in source_documents:
-                        source_documents[source] = {
-                            'metadata': doc_meta,
-                            'chunks': [],
-                            'type': doc_type,
-                            'filed_by': doc_meta.get('filed_by', 'Unknown'),
-                            'filing_date': doc_meta.get('filing_date', 'Unknown')
-                        }
-                    source_documents[source]['chunks'].append(doc)
+        for filename, doc_meta in unique_documents.items():
+            doc_type = doc_meta.get('document_type', '').lower()
+            
+            if any(orig_type in doc_type for orig_type in originating_types):
+                originating_documents.append({
+                    'filename': filename,
+                    'metadata': doc_meta,
+                    'type': doc_type,
+                    'filed_by': doc_meta.get('filed_by', 'Unknown'),
+                    'filing_date': doc_meta.get('filing_date', 'Unknown')
+                })
         
-        # Convert to originating documents list
-        originating_documents = []
-        for source, doc_info in source_documents.items():
-            # Combine all chunks for this document with page number preservation
-            combined_content_parts = []
-            all_page_numbers = set()
-            
-            for chunk in doc_info['chunks']:
-                # Add chunk content with page number markers
-                chunk_content = chunk.page_content
-                chunk_pages = chunk.metadata.get('page_numbers', [])
-                all_page_numbers.update(chunk_pages)
-                
-                # Add page number markers if they exist
-                if chunk_pages:
-                    page_marker = f" [PAGES {', '.join(map(str, sorted(chunk_pages)))}]"
-                    combined_content_parts.append(f"{chunk_content}{page_marker}")
-                else:
-                    combined_content_parts.append(chunk_content)
-            
-            combined_content = "\n\n".join(combined_content_parts)
-            
-            # Create enhanced metadata with page numbers
-            enhanced_metadata = doc_info['metadata'].copy()
-            enhanced_metadata['page_numbers'] = sorted(list(all_page_numbers))
-            enhanced_metadata['total_pages'] = len(all_page_numbers)
-            
-            # Create a single document with combined content
-            combined_doc = Document(
-                page_content=combined_content,
-                metadata=enhanced_metadata
-            )
-            
-            originating_documents.append({
-                'document': combined_doc,
-                'metadata': enhanced_metadata,
-                'type': doc_info['type'],
-                'filed_by': doc_info['filed_by'],
-                'filing_date': doc_info['filing_date'],
-                'chunks': doc_info['chunks'],  # Keep reference to original chunks
-                'page_numbers': sorted(list(all_page_numbers))  # All page numbers for this document
-            })
-        
-        # Step 3: Build response chains using pre-analyzed relationships
+        # Step 2: Build response chains using pre-analyzed relationships
         response_chains = {}
+        
         for orig_doc in originating_documents:
-            orig_filename = orig_doc['metadata']['filename']
+            orig_filename = orig_doc['filename']
             responses = []
+            seen_responses_for_this_orig = set()  # Track unique responses for this originating document
             
-            # Use pre-analyzed relationships if available
-            if 'relationships' in orig_doc['metadata']:
-                rel_info = orig_doc['metadata']['relationships']
-                if rel_info.get('response_type') and rel_info.get('responding_to'):
-                    # Find documents that respond to this originating document
-                    for doc in proceeding_docs:
-                        source = doc.metadata.get('source', '')
-                        if source in self.metadata:
-                            doc_meta = self.metadata[source]
-                            if 'relationships' in doc_meta:
-                                doc_rel = doc_meta['relationships']
-                                if (doc_rel.get('responding_to') == orig_filename or 
-                                    orig_filename in doc_rel.get('responding_to', '')):
-                                    responses.append({
-                                        'document': doc,
-                                        'metadata': doc_meta,
-                                        'relationship_type': doc_rel.get('response_type', 'Unknown')
-                                    })
-            
-            # If no pre-analyzed relationships found, fall back to keyword analysis
-            if not responses:
-                responses = self.relationship_analyzer.find_responses_to_document(orig_doc['metadata'])
+            # Use pre-analyzed relationships to find responding documents
+            for filename, doc_meta in unique_documents.items():
+                if 'relationships' in doc_meta:
+                    doc_rel = doc_meta['relationships']
+                    if (doc_rel.get('responding_to') == orig_filename or 
+                        orig_filename in doc_rel.get('responding_to', '')):
+                        
+                        # Only add if we haven't seen this response document for this originating document
+                        if filename not in seen_responses_for_this_orig:
+                            responses.append({
+                                'filename': filename,
+                                'metadata': doc_meta,
+                                'relationship_type': doc_rel.get('response_type', 'Unknown')
+                            })
+                            seen_responses_for_this_orig.add(filename)
             
             response_chains[orig_filename] = responses
         
-        # Step 4: Add query-based document selection for additional relevance
+        # Debug: Check for duplicate responses
+        total_responses = sum(len(responses) for responses in response_chains.values())
+        if total_responses > 100:  # If we have too many responses, something is wrong
+            st.warning(f"⚠️ High response count detected: {total_responses}. Checking for duplicates...")
+            
+            # Check for duplicate filenames in responses
+            all_response_filenames = []
+            for orig_filename, responses in response_chains.items():
+                for response in responses:
+                    all_response_filenames.append(response['filename'])
+            
+            unique_response_filenames = set(all_response_filenames)
+            if len(all_response_filenames) != len(unique_response_filenames):
+                st.error(f"❌ Duplicate response documents found! Total: {len(all_response_filenames)}, Unique: {len(unique_response_filenames)}")
+                
+                # Show duplicates
+                from collections import Counter
+                filename_counts = Counter(all_response_filenames)
+                duplicates = {filename: count for filename, count in filename_counts.items() if count > 1}
+                if duplicates:
+                    st.write("**Duplicate response documents:**")
+                    for filename, count in duplicates.items():
+                        st.write(f"  - {filename}: {count} times")
+        
+        # Step 3: Add query-based document selection for additional relevance
         additional_relevant_docs = []
         if query:
-            additional_relevant_docs = self._find_query_relevant_documents(query, proceeding_docs, classification)
-        
-        # Removed verbose output
+            # Convert unique documents to list for query analysis
+            doc_list = [{'filename': filename, 'metadata': doc_meta} 
+                       for filename, doc_meta in unique_documents.items()]
+            additional_relevant_docs = self._find_query_relevant_documents_document_level(query, doc_list, classification)
         
         # Display document list for transparency
         with st.expander("📋 **Documents to be Analyzed**", expanded=False):
-            st.write(f"**Total Documents in Proceeding**: {len(proceeding_docs)}")
+            st.write(f"**Total Documents in Proceeding**: {len(unique_documents)}")
             st.write(f"**Originating Documents**: {len(originating_documents)}")
             
             # List originating documents
@@ -377,29 +341,19 @@ Focus on the user's intent within the specific CPUC proceeding and identify whic
                     if responses:
                         st.write(f"**Responses to {orig_filename}:**")
                         for response in responses:
-                            doc_meta = response['document'].metadata
-                            if doc_meta.get('source', '') in self.metadata:
-                                full_meta = self.metadata[doc_meta.get('source', '')]
-                            else:
-                                full_meta = doc_meta
-                            st.write(f"  - {full_meta.get('document_type', 'Unknown')} by {full_meta.get('filed_by', 'Unknown')} ({full_meta.get('filing_date', 'Unknown')})")
+                            st.write(f"  - {response['metadata'].get('document_type', 'Unknown')} by {response['metadata'].get('filed_by', 'Unknown')} ({response['metadata'].get('filing_date', 'Unknown')})")
             
             # List additional relevant documents
             if additional_relevant_docs:
                 st.write(f"**Additional Query-Relevant Documents**: {len(additional_relevant_docs)}")
                 for i, doc in enumerate(additional_relevant_docs, 1):
-                    doc_meta = doc['document'].metadata
-                    if doc_meta.get('source', '') in self.metadata:
-                        full_meta = self.metadata[doc_meta.get('source', '')]
-                    else:
-                        full_meta = doc_meta
-                    st.write(f"{i}. **{full_meta.get('document_type', 'Unknown')}** by {full_meta.get('filed_by', 'Unknown')} ({full_meta.get('filing_date', 'Unknown')}) - {doc.get('relevance_reason', 'Query relevant')}")
+                    st.write(f"{i}. **{doc['metadata'].get('document_type', 'Unknown')}** by {doc['metadata'].get('filed_by', 'Unknown')} ({doc['metadata'].get('filing_date', 'Unknown')}) - {doc.get('relevance_reason', 'Query relevant')}")
         
         return {
             'originating_documents': originating_documents,
             'response_chains': response_chains,
             'additional_relevant_docs': additional_relevant_docs,
-            'total_documents': len(proceeding_docs),
+            'total_documents': len(unique_documents),
             'total_responses': total_responses,
             'total_additional': len(additional_relevant_docs)
         }
@@ -475,6 +429,80 @@ Focus on the user's intent within the specific CPUC proceeding and identify whic
                         'relevance_score': relevance_score,
                         'relevance_reason': '; '.join(relevance_reasons)
                     })
+        
+        # Sort by relevance score and return top documents
+        relevant_docs.sort(key=lambda x: x['relevance_score'], reverse=True)
+        return relevant_docs[:10]  # Limit to top 10 additional relevant documents
+    
+    def _find_query_relevant_documents_document_level(self, query: str, document_list: List[Dict], classification: Dict = None) -> List[Dict]:
+        """Find additional documents relevant to the query at document level"""
+        if not query:
+            return []
+        
+        relevant_docs = []
+        query_lower = query.lower()
+        
+        # Extract key terms from query for matching
+        query_terms = set()
+        for word in query_lower.split():
+            if len(word) > 3:  # Skip short words
+                query_terms.add(word)
+        
+        # Also extract potential document type keywords
+        doc_type_keywords = [
+            'motion', 'application', 'petition', 'complaint', 'protest', 'reply', 
+            'comment', 'brief', 'testimony', 'exhibit', 'response', 'objection',
+            'support', 'opposition', 'recommendation', 'proposal', 'amendment'
+        ]
+        
+        query_doc_types = [term for term in query_terms if term in doc_type_keywords]
+        
+        for doc in document_list:
+            doc_meta = doc['metadata']
+            doc_type = doc_meta.get('document_type', '').lower()
+            description = doc_meta.get('description', '').lower()
+            filed_by = doc_meta.get('filed_by', '').lower()
+            
+            relevance_score = 0
+            relevance_reasons = []
+            
+            # Check for document type matches
+            for query_doc_type in query_doc_types:
+                if query_doc_type in doc_type:
+                    relevance_score += 3
+                    relevance_reasons.append(f"Document type matches query: {query_doc_type}")
+            
+            # Check for keyword matches in description
+            description_matches = sum(1 for term in query_terms if term in description)
+            if description_matches > 0:
+                relevance_score += description_matches
+                relevance_reasons.append(f"Description contains {description_matches} query terms")
+            
+            # Check for party/filer matches
+            for term in query_terms:
+                if term in filed_by:
+                    relevance_score += 2
+                    relevance_reasons.append(f"Filer matches query term: {term}")
+            
+            # Check for specific query patterns
+            if 'response' in query_lower and 'response' in doc_type:
+                relevance_score += 2
+                relevance_reasons.append("Query asks about responses")
+            elif 'comment' in query_lower and 'comment' in doc_type:
+                relevance_score += 2
+                relevance_reasons.append("Query asks about comments")
+            elif 'brief' in query_lower and 'brief' in doc_type:
+                relevance_score += 2
+                relevance_reasons.append("Query asks about briefs")
+            
+            # Only include documents with meaningful relevance
+            if relevance_score >= 2:
+                relevant_docs.append({
+                    'filename': doc['filename'],
+                    'metadata': doc_meta,
+                    'relevance_score': relevance_score,
+                    'relevance_reason': '; '.join(relevance_reasons)
+                })
         
         # Sort by relevance score and return top documents
         relevant_docs.sort(key=lambda x: x['relevance_score'], reverse=True)
@@ -726,23 +754,44 @@ Focus on the user's intent within the specific CPUC proceeding and identify whic
         }
     
     def _summarize_originating_documents(self, originating_docs: List[Dict], model: str) -> List[Dict[str, Any]]:
-        """Summarize originating documents with maximum detail and page citations"""
+        """Summarize originating documents using only large chunks"""
         summaries = []
         
         for i, orig_doc in enumerate(originating_docs, 1):
             st.write(f"📄 **Summarizing Originating Document {i}/{len(originating_docs)}: {orig_doc['type']}**")
             
-            # Get full document content
-            doc_content = orig_doc['document'].page_content
-            doc_metadata = orig_doc['metadata']
+            # Get large chunks for this document
+            large_chunks = self._get_large_chunks_for_document(orig_doc['filename'])
+            
+            if not large_chunks:
+                st.warning(f"⚠️ No large chunks found for {orig_doc['filename']}")
+                continue
+            
+            # Combine large chunks with page number preservation
+            combined_content_parts = []
+            all_page_numbers = set()
+            
+            for chunk in large_chunks:
+                chunk_content = chunk.page_content
+                chunk_pages = chunk.metadata.get('page_numbers', [])
+                all_page_numbers.update(chunk_pages)
+                
+                # Add page number markers if they exist
+                if chunk_pages:
+                    page_marker = f" [PAGES {', '.join(map(str, sorted(chunk_pages)))}]"
+                    combined_content_parts.append(f"{chunk_content}{page_marker}")
+                else:
+                    combined_content_parts.append(chunk_content)
+            
+            doc_content = "\n\n".join(combined_content_parts)
             
             # Calculate dynamic max tokens based on model and content length
             max_tokens = self._get_dynamic_max_tokens(model, doc_content)
             
             # Create detailed summarization prompt with page number emphasis
             page_info = ""
-            if 'page_numbers' in orig_doc and orig_doc['page_numbers']:
-                page_info = f"\n- Available Pages: {', '.join(map(str, orig_doc['page_numbers']))}"
+            if all_page_numbers:
+                page_info = f"\n- Available Pages: {', '.join(map(str, sorted(all_page_numbers)))}"
             
             prompt = f"""Please provide a comprehensive summary of this {orig_doc['type']} with maximum detail and specific page citations.
 
@@ -750,7 +799,7 @@ DOCUMENT INFORMATION:
 - Type: {orig_doc['type']}
 - Filed by: {orig_doc['filed_by']}
 - Date: {orig_doc['filing_date']}
-- Source: {doc_metadata.get('filename', 'Unknown')}{page_info}
+- Source: {orig_doc['filename']}{page_info}
 
 DOCUMENT CONTENT:
 {doc_content}
@@ -807,49 +856,46 @@ Focus on extracting the maximum amount of detail while maintaining accuracy and 
         
         return summaries
     
+    def _get_large_chunks_for_document(self, filename: str) -> List[Document]:
+        """Get only large chunks for a specific document"""
+        large_chunks = []
+        
+        for doc in self.documents:
+            source = doc.metadata.get('source', '')
+            chunk_level = doc.metadata.get('chunk_level', '')
+            
+            if source == filename and chunk_level == 'large':
+                large_chunks.append(doc)
+        
+        return large_chunks
+    
     def _summarize_response_documents(self, response_chains: Dict, model: str) -> List[Dict[str, Any]]:
-        """Summarize response documents with party positions and page citations"""
+        """Summarize response documents using only large chunks"""
         summaries = []
         
         for orig_filename, responses in response_chains.items():
             if not responses:
                 continue
                 
-            # Group response chunks by source document to avoid duplicates
-            response_documents = {}  # filename -> {metadata, chunks}
+            st.write(f"📝 **Summarizing {len(responses)} response documents to {orig_filename}**")
             
+            # Process each response document using large chunks only
             for response in responses:
-                doc = response['document']
-                doc_meta = doc.metadata
-                source = doc_meta.get('source', '')
+                filename = response['filename']
+                doc_meta = response['metadata']
                 
-                if source not in response_documents:
-                    # Get full metadata
-                    if source in self.metadata:
-                        full_meta = self.metadata[source]
-                    else:
-                        full_meta = doc_meta
-                    
-                    response_documents[source] = {
-                        'metadata': full_meta,
-                        'chunks': [],
-                        'type': full_meta.get('document_type', 'Unknown'),
-                        'filed_by': full_meta.get('filed_by', 'Unknown'),
-                        'filing_date': full_meta.get('filing_date', 'Unknown')
-                    }
+                # Get large chunks for this response document
+                large_chunks = self._get_large_chunks_for_document(filename)
                 
-                response_documents[source]['chunks'].append(doc)
-            
-            st.write(f"📝 **Summarizing {len(response_documents)} response documents to {orig_filename}**")
-            
-            # Process each response document (combining chunks)
-            for source, doc_info in response_documents.items():
-                # Combine all chunks for this document with page number preservation
+                if not large_chunks:
+                    st.warning(f"⚠️ No large chunks found for {filename}")
+                    continue
+                
+                # Combine large chunks with page number preservation
                 combined_content_parts = []
                 all_page_numbers = set()
                 
-                for chunk in doc_info['chunks']:
-                    # Add chunk content with page number markers
+                for chunk in large_chunks:
                     chunk_content = chunk.page_content
                     chunk_pages = chunk.metadata.get('page_numbers', [])
                     all_page_numbers.update(chunk_pages)
@@ -863,31 +909,18 @@ Focus on extracting the maximum amount of detail while maintaining accuracy and 
                 
                 combined_content = "\n\n".join(combined_content_parts)
                 
-                # Create enhanced metadata with page numbers
-                enhanced_metadata = doc_info['metadata'].copy()
-                enhanced_metadata['page_numbers'] = sorted(list(all_page_numbers))
-                enhanced_metadata['total_pages'] = len(all_page_numbers)
-                
-                # Create a single document with combined content
-                combined_doc = Document(
-                    page_content=combined_content,
-                    metadata=enhanced_metadata
-                )
-                
-                full_meta = doc_info['metadata']
-                
                 # Add page number information
                 page_info = ""
-                if 'page_numbers' in enhanced_metadata and enhanced_metadata['page_numbers']:
-                    page_info = f"\n- Available Pages: {', '.join(map(str, enhanced_metadata['page_numbers']))}"
+                if all_page_numbers:
+                    page_info = f"\n- Available Pages: {', '.join(map(str, sorted(all_page_numbers)))}"
                 
                 prompt = f"""Please provide a detailed summary of this response document with specific page citations and party position analysis.
 
 RESPONSE DOCUMENT INFORMATION:
-- Type: {full_meta.get('document_type', 'Unknown')}
-- Filed by: {full_meta.get('filed_by', 'Unknown')}
-- Date: {full_meta.get('filing_date', 'Unknown')}
-- Source: {full_meta.get('filename', 'Unknown')}
+- Type: {doc_meta.get('document_type', 'Unknown')}
+- Filed by: {doc_meta.get('filed_by', 'Unknown')}
+- Date: {doc_meta.get('filing_date', 'Unknown')}
+- Source: {filename}
 - Response to: {orig_filename}{page_info}
 
 DOCUMENT CONTENT:
@@ -928,20 +961,20 @@ Focus on the party's specific position and arguments with detailed citations."""
                         self._track_cost('stage_2', cost)
                     
                     summaries.append({
-                        'document_type': full_meta.get('document_type', 'Unknown'),
-                        'filed_by': full_meta.get('filed_by', 'Unknown'),
+                        'document_type': doc_meta.get('document_type', 'Unknown'),
+                        'filed_by': doc_meta.get('filed_by', 'Unknown'),
                         'summary': summary_content,
-                        'metadata': full_meta,
+                        'metadata': doc_meta,
                         'response_to': orig_filename
                     })
                     
                 except Exception as e:
                     st.error(f"❌ Error summarizing response: {e}")
                     summaries.append({
-                        'document_type': full_meta.get('document_type', 'Unknown'),
-                        'filed_by': full_meta.get('filed_by', 'Unknown'),
+                        'document_type': doc_meta.get('document_type', 'Unknown'),
+                        'filed_by': doc_meta.get('filed_by', 'Unknown'),
                         'summary': f"Error generating summary: {e}",
-                        'metadata': full_meta,
+                        'metadata': doc_meta,
                         'response_to': orig_filename
                     })
         
