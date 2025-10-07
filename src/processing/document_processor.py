@@ -175,7 +175,7 @@ class DocumentProcessor:
         return vector_store, bm25, documents, metadata
     
     def _create_vector_store_with_cache(self, documents: List[Document]) -> Any:
-        """Create vector store with content-hash caching"""
+        """Create vector store with content-hash caching and batch processing"""
         try:
             # Check cache for existing embeddings
             cached_embeddings = []
@@ -190,10 +190,10 @@ class DocumentProcessor:
                 else:
                     new_documents.append(doc)
             
-            # Create embeddings for new documents
+            # Create embeddings for new documents in batches to avoid token limits
             if new_documents:
                 st.write(f"🔄 Creating embeddings for {len(new_documents)} new chunks...")
-                new_embeddings = self.embeddings.embed_documents([doc.page_content for doc in new_documents])
+                new_embeddings = self._create_embeddings_in_batches(new_documents)
                 
                 # Cache new embeddings
                 for doc, embedding in zip(new_documents, new_embeddings):
@@ -219,6 +219,71 @@ class DocumentProcessor:
         except Exception as e:
             st.error(f"Error creating vector store: {e}")
             return None
+    
+    def _create_embeddings_in_batches(self, documents: List[Document], batch_size: int = 50) -> List[List[float]]:
+        """Create embeddings in batches to avoid token limits"""
+        all_embeddings = []
+        
+        # Calculate optimal batch size based on token estimation
+        optimal_batch_size = self._calculate_optimal_batch_size(documents, batch_size)
+        total_batches = (len(documents) + optimal_batch_size - 1) // optimal_batch_size
+        
+        for i in range(0, len(documents), optimal_batch_size):
+            batch_docs = documents[i:i + optimal_batch_size]
+            batch_texts = [doc.page_content for doc in batch_docs]
+            
+            # Calculate current batch number
+            current_batch = (i // optimal_batch_size) + 1
+            
+            # Show progress
+            st.write(f"🔄 Processing batch {current_batch}/{total_batches} ({len(batch_texts)} documents)...")
+            
+            try:
+                # Create embeddings for this batch
+                batch_embeddings = self.embeddings.embed_documents(batch_texts)
+                all_embeddings.extend(batch_embeddings)
+                
+                # Show progress bar
+                progress = current_batch / total_batches
+                st.progress(progress, text=f"Batch {current_batch}/{total_batches} completed")
+                
+            except Exception as e:
+                st.error(f"❌ Error processing batch {current_batch}: {e}")
+                # If batch fails, try smaller batches
+                if optimal_batch_size > 10:
+                    st.warning(f"⚠️ Retrying batch {current_batch} with smaller batch size...")
+                    smaller_batch_embeddings = self._create_embeddings_in_batches(batch_docs, optimal_batch_size // 2)
+                    all_embeddings.extend(smaller_batch_embeddings)
+                else:
+                    st.error(f"❌ Failed to process batch {current_batch} even with smaller size. Skipping...")
+                    # Add zero embeddings for failed batch
+                    all_embeddings.extend([[0.0] * 1536 for _ in batch_docs])  # OpenAI embeddings are 1536 dimensions
+        
+        return all_embeddings
+    
+    def _calculate_optimal_batch_size(self, documents: List[Document], default_batch_size: int = 50) -> int:
+        """Calculate optimal batch size based on token estimation to stay under 300k token limit"""
+        if not documents:
+            return default_batch_size
+        
+        # Estimate tokens per document (rough approximation: 4 chars per token)
+        total_chars = sum(len(doc.page_content) for doc in documents)
+        avg_chars_per_doc = total_chars / len(documents)
+        estimated_tokens_per_doc = avg_chars_per_doc // 4
+        
+        # Calculate how many documents we can fit in 250k tokens (leaving 50k buffer)
+        max_tokens_per_batch = 250000
+        optimal_batch_size = max_tokens_per_batch // max(estimated_tokens_per_doc, 100)  # At least 100 tokens per doc
+        
+        # Ensure reasonable bounds
+        optimal_batch_size = max(5, min(optimal_batch_size, default_batch_size))
+        
+        st.write(f"📊 **Batch Size Calculation**:")
+        st.write(f"- Average tokens per document: ~{estimated_tokens_per_doc}")
+        st.write(f"- Optimal batch size: {optimal_batch_size} documents")
+        st.write(f"- Estimated tokens per batch: ~{optimal_batch_size * estimated_tokens_per_doc}")
+        
+        return optimal_batch_size
     
     def _create_bm25_index(self, documents: List[Document]) -> Any:
         """Create BM25 keyword search index"""
